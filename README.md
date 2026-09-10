@@ -20,8 +20,9 @@ board stays quiet until you want to tune it.
 | Google Calendar | Events starting in the next 36h | Google OAuth — see below |
 | ClickUp | Overdue / due-soon tasks on your list | Works out of the box (skill credential or `CLICKUP_TOKEN`) |
 | Anytype | Open tasks from your local Anytype app | Pair via the patch bay card (desktop app must be running) |
+| GitHub | Unread notifications (mentions, review requests, CI, releases) | `GITHUB_TOKEN` in `.env` — see below |
 
-Each channel poll is a local CLI call with a hard timeout; a failing
+Each channel poll is a local call with a hard timeout; a failing
 channel reports its error on its card without disturbing the others.
 
 ## Modulation
@@ -46,7 +47,8 @@ Reminders arrive live over SSE; the 🔔 button enables desktop notifications.
 bun start   # → http://localhost:3002
 ```
 
-Copy `.env.example` to `.env` to set `CLICKUP_TOKEN` / `CLICKUP_LIST_ID`
+Copy `.env.example` to `.env` to set `CLICKUP_TOKEN` / `CLICKUP_LIST_ID`,
+`GITHUB_TOKEN`, and the Google OAuth client
 (optional — without a token the ClickUp skill credential is used).
 
 ## Google OAuth setup
@@ -78,6 +80,24 @@ Tokens are stored locally in `switchboard.db` and refreshed silently; if
 Google ever rejects them the card flips back to NOT CONNECTED so you can
 reconnect.
 
+## GitHub setup
+
+The GitHub channel polls your unread notifications via the REST API.
+
+1. Create a **fine-grained personal access token** at
+   [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new).
+2. Under **Repository access** choose "Public repositories" (or "All
+   repositories" if you want private repo notifications too), then under
+   **Permissions → Account permissions** grant **Notifications: Read-only**.
+3. Copy the token into your `.env` as `GITHUB_TOKEN` (see `.env.example`)
+   and restart Switchboard.
+
+Mentions, review requests, assignments, and security alerts route as
+**high** priority; everything else is normal. The API only lists unread
+notifications, so marking one read on GitHub clears it from the next poll.
+If the token is missing or revoked, the card shows NOT CONNECTED with a
+link back to the token page.
+
 ## Anytype pairing
 
 The Anytype channel reads open tasks from the Anytype desktop app's local
@@ -108,6 +128,7 @@ a fresh alert; one that stays due doesn't re-alert every poll.
 - `POST /api/channels/anytype/pair` (`challenge_id`, `code`) → stores the API key
 - `POST /api/channels/anytype/key` (`key`) → verify + store a pasted API key
 - `GET|PATCH /api/settings` (`quiet_enabled`, `quiet_start`, `quiet_end`, `digest_minutes`, `urgent_breaks_quiet`)
-- `GET /api/notifications` · `POST /api/notifications/:id/dismiss|snooze`
+- `GET /api/notifications` (`limit`, `offset`, `q` — searchable archive, newest first; `total` included when searching or paging)
+- `POST /api/notifications/:id/dismiss|snooze`
 - `POST /api/test` — fire a test signal through the router
 - `GET /api/events` — SSE stream of board events

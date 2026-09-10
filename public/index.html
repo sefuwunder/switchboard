@@ -61,6 +61,17 @@
     <div class="panel-head"><h2>Line out</h2><span class="panel-sub">modulated reminders</span></div>
     <div id="feed" class="feed"><p class="muted">Quiet on the line. Signals will appear here as the board routes them.</p></div>
   </section>
+
+  <section class="panel" aria-label="Archive">
+    <div class="panel-head"><h2>Archive</h2><span class="panel-sub" id="archive-count"></span></div>
+    <div class="ch-row" style="margin-bottom:10px">
+      <input id="archive-q" class="mini-btn" style="flex:1;min-width:0" placeholder="Search past reminders&hellip;" aria-label="Search archive">
+    </div>
+    <div id="archive" class="archive"><p class="muted">Loading history&hellip;</p></div>
+    <div class="ch-row" style="margin-top:10px;justify-content:center">
+      <button id="archive-more" class="mini-btn" hidden>Show more</button>
+    </div>
+  </section>
 </main>
 
 <footer class="foot"><span>Switchboard &middot; Bun + SQLite &middot; polls locally, nothing leaves your machine except the services you patch in.</span></footer>

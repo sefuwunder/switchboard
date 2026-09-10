@@ -6,10 +6,10 @@
 import { Database } from "bun:sqlite";
 import {
   openDb, getChannels, getChannel, updateChannel, getSettings, getPublicSettings, setSetting,
-  recentNotifications, getNotification, updateNotification,
+  recentNotifications, searchNotifications, getNotification, updateNotification,
 } from "./db";
 import { CHANNEL_DEFS } from "./channels";
-import { anytypeChallenge, anytypePair, anytypeProbe } from "./channels";
+import { anytypeChallenge, anytypePair, anytypeProbe, githubConfigured } from "./channels";
 import { googleConfigured, googleExchangeCode } from "./google";
 import { tick, injectTest, type Broadcast } from "./engine";
 
@@ -18,6 +18,25 @@ const PUBLIC_DIR = new URL("../public/", import.meta.url).pathname;
 const DB_PATH = process.env.SWITCHBOARD_DB || new URL("../switchboard.db", import.meta.url).pathname;
 
 const db: Database = openDb(DB_PATH);
+
+// New channels ship with the app but existing databases predate them —
+// make sure every channel def has a row.
+{
+  const seed = db.prepare(
+    `INSERT OR IGNORE INTO channels (id, label, mode, min_priority, poll_minutes) VALUES (?, ?, ?, ?, ?)`
+  );
+  const defaults: Record<string, [string, string, number]> = {
+    gmail: ["digest", "normal", 15],
+    calendar: ["instant", "normal", 15],
+    clickup: ["digest", "low", 30],
+    anytype: ["digest", "low", 30],
+    github: ["digest", "normal", 15],
+  };
+  for (const d of CHANNEL_DEFS) {
+    const [mode, minp, mins] = defaults[d.id] || ["digest", "normal", 15];
+    seed.run(d.id, d.label, mode, minp, mins);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // SSE fan-out
@@ -150,6 +169,12 @@ async function handle(req: Request): Promise<Response> {
         error: "Google OAuth isn't configured — set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env (see README) and restart.",
       });
     }
+    if (mm[1] === "github" && !githubConfigured()) {
+      return json({
+        connectUrl: null,
+        error: "GitHub isn't configured — set GITHUB_TOKEN in .env (see README) and restart.",
+      });
+    }
     const connectUrl = await def.connectUrl();
     return json({ connectUrl, pairing: !!def.pairing });
   }
@@ -227,7 +252,11 @@ async function handle(req: Request): Promise<Response> {
 
   if (p === "/api/notifications" && m === "GET") {
     const limit = Math.max(1, Math.min(200, Number(url.searchParams.get("limit")) || 50));
-    return json({ notifications: recentNotifications(db, limit) });
+    const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
+    const q = (url.searchParams.get("q") || "").trim().slice(0, 200);
+    if (!q && !offset) return json({ notifications: recentNotifications(db, limit), total: null });
+    const { notifications, total } = searchNotifications(db, q, limit, offset);
+    return json({ notifications, total });
   }
 
   mm = p.match(/^\/api\/notifications\/(\d+)\/(dismiss|snooze)$/);

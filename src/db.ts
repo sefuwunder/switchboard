@@ -104,6 +104,7 @@ export function openDb(path: string): Database {
   seedChannel.run("calendar", "Google Calendar", "instant", "normal", 15);
   seedChannel.run("clickup", "ClickUp", "digest", "low", 30);
   seedChannel.run("anytype", "Anytype", "digest", "low", 30);
+  seedChannel.run("github", "GitHub", "digest", "normal", 15);
 
   const seedSetting = db.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`);
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) seedSetting.run(k, v);
@@ -238,6 +239,19 @@ export function recentNotifications(db: Database, limit = 50): Notification[] {
   return db
     .query(`SELECT * FROM notifications ORDER BY created_at DESC LIMIT ?`)
     .all(limit) as Notification[];
+}
+
+/** Searchable archive: full-text-ish match on title/body, newest first. */
+export function searchNotifications(
+  db: Database, q: string, limit = 50, offset = 0
+): { notifications: Notification[]; total: number } {
+  const like = `%${q.replace(/[%_]/g, (c) => `\\${c}`)}%`;
+  const where = q ? `WHERE title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\'` : "";
+  const total = (db.query(`SELECT COUNT(*) AS c FROM notifications ${where}`).get(...(q ? [like, like] : [])) as { c: number }).c;
+  const notifications = db
+    .query(`SELECT * FROM notifications ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+    .all(...(q ? [like, like] : []), limit, offset) as Notification[];
+  return { notifications, total };
 }
 
 export function getNotification(db: Database, id: number): Notification | null {

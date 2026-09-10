@@ -1,4 +1,4 @@
-// Switchboard frontend: patch bay, master controls, live line-out feed.
+// Switchboard frontend: patch bay, master controls, live line-out feed, archive.
 const $ = (id) => document.getElementById(id);
 const PRIO = ["low", "normal", "high", "urgent"];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
@@ -11,6 +11,7 @@ const LOGOS = {
   calendar: LOGO_OPEN + '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17"/><path d="M8 3v3.5M16 3v3.5"/><text x="12" y="17.5" text-anchor="middle" font-size="7.5" font-weight="600" fill="currentColor" stroke="none">31</text></svg>',
   clickup: LOGO_OPEN + '<path d="M6.5 3.8 19 13.2l-7.4 1.2-3.4 6.1-1.7-16.7z"/></svg>',
   anytype: LOGO_OPEN + '<path d="M12 4.5 19.5 19.5h-15L12 4.5z"/><path d="M12 12.5v7"/></svg>',
+  github: LOGO_OPEN + '<circle cx="12" cy="5.5" r="2.2"/><circle cx="6" cy="18.5" r="2.2"/><circle cx="18" cy="18.5" r="2.2"/><path d="M12 7.7v4.1c0 2.6-3.2 2.7-4.3 4.5M12 11.8c0 2.6 3.2 2.7 4.3 4.5"/></svg>',
 };
 const LOGO_FALLBACK = LOGO_OPEN + '<path d="M9 7V3.5M15 7V3.5M7 7h10v3.5a5 5 0 0 1-10 0V7zM12 15.5V21"/></svg>';
 const logoFor = (id) => LOGOS[id] || LOGO_FALLBACK;
@@ -69,6 +70,14 @@ function timeAgo(ms) {
   if (s < 60) return "just now";
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   return `${Math.floor(s / 3600)}h ago`;
+}
+
+/** Absolute timestamp for the archive: "Sep 10, 15:42". */
+function fmtTime(ms) {
+  const d = new Date(ms);
+  const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const p = (n) => String(n).padStart(2, "0");
+  return `${M[d.getMonth()]} ${d.getDate()}, ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 async function patchChannel(id, patch) {
@@ -365,6 +374,48 @@ function desktopNotify(n) {
   });
 }
 
+// ---------- archive (searchable history with timestamps) ----------
+const archive = { q: "", offset: 0, total: null, items: [] };
+
+function archiveRow(n) {
+  return `
+    <div class="note ${n.kind === "digest" ? "digest" : n.priority} ${n.status}">
+      <div class="note-top">
+        <span class="note-tag">${n.kind === "digest" ? "digest" : esc(n.channel_id || "line")}</span>
+        <span class="note-title">${esc(n.title)}</span>
+      </div>
+      ${n.body ? `<div class="note-body">${esc(n.body)}</div>` : ""}
+      <div class="note-meta">
+        <span title="${esc(new Date(n.created_at).toLocaleString())}">${fmtTime(n.created_at)}</span>
+        ${n.status === "dismissed" ? "<span>dismissed</span>" : ""}
+        ${n.status === "snoozed" ? "<span>snoozed</span>" : ""}
+        <span class="grow"></span>
+        ${n.url ? `<a class="mini-btn" href="${esc(n.url)}" target="_blank" rel="noopener">open</a>` : ""}
+      </div>
+    </div>`;
+}
+
+function renderArchive() {
+  const box = $("archive");
+  const items = archive.items;
+  box.innerHTML = items.length
+    ? items.map(archiveRow).join("")
+    : `<p class="muted">No reminders in the archive${archive.q ? " matching that search" : " yet"}.</p>`;
+  const more = $("archive-more");
+  more.hidden = !(archive.total != null && archive.items.length < archive.total);
+  $("archive-count").textContent = archive.total != null ? `${archive.total} total` : "";
+}
+
+async function loadArchive(reset) {
+  if (reset) { archive.offset = 0; archive.items = []; }
+  const r = await fetch(`/api/notifications?q=${encodeURIComponent(archive.q)}&limit=50&offset=${archive.offset}`);
+  const d = await r.json();
+  archive.total = d.total;
+  archive.items.push(...(d.notifications || []));
+  archive.offset += (d.notifications || []).length;
+  renderArchive();
+}
+
 // ---------- live ----------
 function subscribe() {
   const es = new EventSource("/api/events");
@@ -377,6 +428,7 @@ function subscribe() {
         else state.feed.unshift(ev.notification);
         renderFeed();
         desktopNotify(ev.notification);
+        if (!archive.q) loadArchive(true); // keep the unfiltered archive fresh
       } else if (ev.type === "channel") {
         const i = state.channels.findIndex((c) => c.id === ev.channel.id);
         if (i >= 0) state.channels[i] = { ...state.channels[i], ...ev.channel };
@@ -443,7 +495,7 @@ $("test-btn").addEventListener("click", async () => {
 });
 
 (async function init() {
-  await Promise.all([loadChannels(), loadSettings(), loadFeed()]);
+  await Promise.all([loadChannels(), loadSettings(), loadFeed(), loadArchive(true)]);
   subscribe();
   // Returning from Google OAuth consent.
   try {
@@ -453,3 +505,14 @@ $("test-btn").addEventListener("click", async () => {
     }
   } catch { /* non-browser stub */ }
 })();
+
+// Archive search (debounced) + pagination.
+{
+  const q = $("archive-q");
+  let deb;
+  q.addEventListener("input", () => {
+    clearTimeout(deb);
+    deb = setTimeout(() => { archive.q = q.value.trim(); loadArchive(true); }, 400);
+  });
+  $("archive-more").addEventListener("click", () => loadArchive(false));
+}

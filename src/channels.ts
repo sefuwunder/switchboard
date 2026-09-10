@@ -476,9 +476,94 @@ async function pollAnytype({ db }: ChannelCtx): Promise<PollResult> {
 
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// GitHub: unread notifications (mentions, review requests, CI, releases…)
+// via the REST API. Needs a personal access token in GITHUB_TOKEN with
+// the "Notifications: read-only" scope (see README).
+// ---------------------------------------------------------------------------
+
+const GITHUB_API = process.env.GITHUB_API_BASE || "https://api.github.com";
+
+function githubToken(): string {
+  return process.env.GITHUB_TOKEN || "";
+}
+
+export function githubConfigured(): boolean {
+  return !!githubToken();
+}
+
+export function githubSetupUrl(): string {
+  return "https://github.com/settings/personal-access-tokens/new";
+}
+
+/** Turn a notification's API URL into the human URL on github.com. */
+function githubHtmlUrl(n: any): string {
+  const api: string = n?.subject?.url || "";
+  const repo: string = n?.repository?.full_name || "";
+  const m = api.match(/^https:\/\/api\.github\.com\/repos\/([^/]+\/[^/]+)\/(issues|pulls|commits|releases)\/(.+)$/);
+  if (m) {
+    const [, r, kind, id] = m;
+    if (kind === "issues") return `https://github.com/${r}/issues/${id}`;
+    if (kind === "pulls") return `https://github.com/${r}/pull/${id}`;
+    if (kind === "commits") return `https://github.com/${r}/commit/${id}`;
+    if (kind === "releases") return `https://github.com/${r}/releases/${id}`;
+  }
+  return repo ? `https://github.com/${repo}` : "";
+}
+
+const GITHUB_HIGH_REASON = /^(mention|review_requested|assign|security_alert)$/;
+
+async function pollGitHub(): Promise<PollResult> {
+  if (!githubConfigured()) return { ok: false, signals: [], error: "not_connected" };
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 20000);
+  let res: Response;
+  try {
+    res = await fetch(`${GITHUB_API}/notifications?per_page=20`, {
+      headers: {
+        Authorization: `Bearer ${githubToken()}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "switchboard/1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      signal: ctrl.signal,
+    });
+  } catch {
+    clearTimeout(t);
+    return { ok: false, signals: [], error: "GitHub request failed" };
+  } finally {
+    clearTimeout(t);
+  }
+  if (res.status === 401 || res.status === 403) return { ok: false, signals: [], error: "not_connected" };
+  if (!res.ok) return { ok: false, signals: [], error: `GitHub HTTP ${res.status}` };
+  const items: any[] = await res.json().catch(() => []);
+  const signals: SignalInput[] = [];
+  for (const n of (Array.isArray(items) ? items : []).slice(0, 20)) {
+    const id = String(n.id || "");
+    if (!id) continue;
+    const subject = n.subject || {};
+    const repo = n.repository?.full_name || "";
+    const reason = String(n.reason || "").replace(/_/g, " ");
+    signals.push({
+      ext_id: `github:${id}`,
+      title: subject.title || "(no title)",
+      body: [repo, reason].filter(Boolean).join(" · ").slice(0, 220),
+      url: githubHtmlUrl(n),
+      priority: GITHUB_HIGH_REASON.test(String(n.reason || "")) ? "high" : "normal",
+    });
+  }
+  return { ok: true, signals };
+}
+
+// ---------------------------------------------------------------------------
+
 export const CHANNEL_DEFS: ChannelDef[] = [
   { id: "gmail", label: "Gmail", poll: pollGmail, connectUrl: async () => googleAuthUrl() },
   { id: "calendar", label: "Google Calendar", poll: pollCalendar, connectUrl: async () => googleAuthUrl() },
   { id: "clickup", label: "ClickUp", poll: pollClickUp, connectUrl: async () => null },
   { id: "anytype", label: "Anytype", poll: pollAnytype, connectUrl: async () => null, pairing: true },
+  {
+    id: "github", label: "GitHub", poll: pollGitHub,
+    connectUrl: async () => (githubConfigured() ? githubSetupUrl() : null),
+  },
 ];
