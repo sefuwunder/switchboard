@@ -76,7 +76,9 @@ function routeSignals(db: Database, s: Record<string, string>, broadcast: Broadc
       continue;
     }
     const breaksQuiet = sig.priority === "urgent" && urgentBreaks;
-    if (ch.mode === "instant" && (!quiet || breaksQuiet)) {
+    // Urgent is an alert: it always goes out instantly, even in digest mode —
+    // the same way it can break quiet hours.
+    if ((ch.mode === "instant" || sig.priority === "urgent") && (!quiet || breaksQuiet)) {
       emitInstant(db, sig, broadcast);
     } else {
       enqueueDigest(db, sig.id);

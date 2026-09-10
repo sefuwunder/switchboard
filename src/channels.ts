@@ -453,14 +453,18 @@ async function pollAnytype({ db }: ChannelCtx): Promise<PollResult> {
     const dueMs = dueP ? asMs(dueP.value) : 0;
     let priority: SignalInput["priority"] = "low";
     let when = "no due date";
+    let due = false;
     if (dueMs) {
       const days = Math.ceil((dueMs - now) / 86400000);
       when = days < 0 ? `overdue by ${-days}d` : days === 0 ? "due today" : `due in ${days}d`;
-      priority = days < 0 ? "high" : days <= 2 ? "normal" : "low";
+      due = days <= 0; // overdue or due today: this task is an alert
+      priority = due ? "urgent" : days <= 2 ? "normal" : "low";
     }
     const name = o.name || o.title || "(untitled task)";
+    // The due-state is part of the identity so a task that *becomes* due
+    // fires a fresh alert; a task that stays due doesn't re-alert.
     signals.push({
-      ext_id: `anytype:${o.id || name}`,
+      ext_id: `anytype:${o.id || name}:${due ? "due" : "open"}`,
       title: name,
       body: `Anytype task · ${when}`.slice(0, 220),
       url: "",

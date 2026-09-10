@@ -61,6 +61,11 @@ The key is stored locally in `switchboard.db`; `ANYTYPE_API_KEY` in `.env`
 overrides it, and `ANYTYPE_BASE_URL` changes the API address (e.g. for the
 `anytype-cli` headless server on port `31012`).
 
+A task that is **overdue or due today raises an urgent alert**: it goes out
+instantly (red, breaks the digest and — if enabled — quiet hours), even
+though the channel defaults to digest mode. A task that *becomes* due fires
+a fresh alert; one that stays due doesn't re-alert every poll.
+
 ## API
 
 - `GET /api/channels` · `PATCH /api/channels/:id` (`enabled`, `mode`, `min_priority`, `poll_minutes`)
