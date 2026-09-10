@@ -62,15 +62,25 @@
     <div id="feed" class="feed"><p class="muted">Quiet on the line. Signals will appear here as the board routes them.</p></div>
   </section>
 
-  <section class="panel" aria-label="Archive">
-    <div class="panel-head"><h2>Archive</h2><span class="panel-sub" id="archive-count"></span></div>
-    <div class="ch-row" style="margin-bottom:10px">
-      <input id="archive-q" class="mini-btn" style="flex:1;min-width:0" placeholder="Search past reminders&hellip;" aria-label="Search archive">
-    </div>
-    <div id="archive" class="archive"><p class="muted">Loading history&hellip;</p></div>
-    <div class="ch-row" style="margin-top:10px;justify-content:center">
-      <button id="archive-more" class="mini-btn" hidden>Show more</button>
-    </div>
+  <section class="panel" aria-label="Starred">
+    <div class="panel-head"><h2>Starred</h2><span class="panel-sub" id="starred-count"></span></div>
+    <div id="starred" class="archive"><p class="muted">Nothing starred yet &mdash; tap &star; on any reminder to pin it here.</p></div>
+  </section>
+
+  <section class="panel" id="archive-panel" data-open="0" aria-label="Archive">
+    <button class="fold-head" id="archive-toggle" aria-expanded="false">
+      <h2>Archive</h2><span class="panel-sub" id="archive-count"></span>
+      <span class="chev" aria-hidden="true">&#8250;</span>
+    </button>
+    <div class="foldable"><div class="foldable-inner">
+      <div class="ch-row" style="margin-bottom:10px">
+        <input id="archive-q" class="mini-btn" style="flex:1;min-width:0" placeholder="Search past reminders&hellip;" aria-label="Search archive">
+      </div>
+      <div id="archive" class="archive"><p class="muted">Loading history&hellip;</p></div>
+      <div class="ch-row" style="margin-top:10px;justify-content:center">
+        <button id="archive-more" class="mini-btn" hidden>Show more</button>
+      </div>
+    </div></div>
   </section>
 </main>
 

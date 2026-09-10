@@ -327,6 +327,7 @@ function noteHtml(n) {
       <span class="grow"></span>
       ${n.url ? `<a class="mini-btn" href="${esc(n.url)}" target="_blank" rel="noopener">open</a>` : ""}
       ${n.status !== "dismissed" ? `
+        <button class="mini-btn act-star ${n.starred ? "active" : ""}" data-id="${n.id}" title="${n.starred ? "Unstar" : "Star"}">${n.starred ? "&#9733;" : "&#9734;"}</button>
         <button class="mini-btn act-snooze" data-id="${n.id}">snooze 30m</button>
         <button class="mini-btn act-dismiss" data-id="${n.id}">dismiss</button>` : ""}
     </div>`;
@@ -348,6 +349,8 @@ function renderFeed() {
     if (d) d.addEventListener("click", () => noteAction(n.id, "dismiss"));
     const s = el.querySelector(".act-snooze");
     if (s) s.addEventListener("click", () => noteAction(n.id, "snooze"));
+    const st = el.querySelector(".act-star");
+    if (st) st.addEventListener("click", () => starAction(n.id, !n.starred));
     feed.appendChild(el);
   }
 }
@@ -361,7 +364,25 @@ async function noteAction(id, action) {
   const d = await r.json();
   const i = state.feed.findIndex((n) => n.id === id);
   if (i >= 0) state.feed[i] = d.notification;
+  const j = state.starred.findIndex((n) => n.id === id);
+  if (j >= 0) state.starred[j] = d.notification;
   renderFeed();
+  renderStarred();
+}
+
+async function starAction(id, starred) {
+  const r = await fetch(`/api/notifications/${id}/star`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ starred }),
+  });
+  const d = await r.json();
+  for (const list of [state.feed, archive.items]) {
+    const i = list.findIndex((n) => n.id === id);
+    if (i >= 0) list[i] = d.notification;
+  }
+  renderFeed();
+  renderArchive();
+  loadStarred();
 }
 
 function desktopNotify(n) {
@@ -391,6 +412,7 @@ function archiveRow(n) {
         ${n.status === "snoozed" ? "<span>snoozed</span>" : ""}
         <span class="grow"></span>
         ${n.url ? `<a class="mini-btn" href="${esc(n.url)}" target="_blank" rel="noopener">open</a>` : ""}
+        <button class="mini-btn act-star ${n.starred ? "active" : ""}" data-id="${n.id}" title="${n.starred ? "Unstar" : "Star"}">${n.starred ? "&#9733;" : "&#9734;"}</button>
       </div>
     </div>`;
 }
@@ -398,12 +420,21 @@ function archiveRow(n) {
 function renderArchive() {
   const box = $("archive");
   const items = archive.items;
-  box.innerHTML = items.length
-    ? items.map(archiveRow).join("")
-    : `<p class="muted">No reminders in the archive${archive.q ? " matching that search" : " yet"}.</p>`;
-  const more = $("archive-more");
-  more.hidden = !(archive.total != null && archive.items.length < archive.total);
   $("archive-count").textContent = archive.total != null ? `${archive.total} total` : "";
+  $("archive-more").hidden = !(archive.total != null && archive.items.length < archive.total);
+  if (!items.length) {
+    box.innerHTML = `<p class="muted">No reminders in the archive${archive.q ? " matching that search" : " yet"}.</p>`;
+    return;
+  }
+  box.innerHTML = "";
+  for (const n of items) {
+    const el = document.createElement("div");
+    el.className = `note ${n.kind === "digest" ? "digest" : n.priority} ${n.status}`;
+    el.innerHTML = archiveRow(n);
+    const st = el.querySelector(".act-star");
+    if (st) st.addEventListener("click", () => starAction(n.id, !n.starred));
+    box.appendChild(el);
+  }
 }
 
 async function loadArchive(reset) {
@@ -416,6 +447,50 @@ async function loadArchive(reset) {
   renderArchive();
 }
 
+// ---------- starred (pinned reminders, held until unstarred) ----------
+function starredRow(n) {
+  return `
+    <div class="note-top">
+      <span class="note-tag">${n.kind === "digest" ? "digest" : esc(n.channel_id || "line")}</span>
+      <span class="note-title">${esc(n.title)}</span>
+    </div>
+    ${n.body ? `<div class="note-body">${esc(n.body)}</div>` : ""}
+    <div class="note-meta">
+      <span title="${esc(new Date(n.created_at).toLocaleString())}">${fmtTime(n.created_at)}</span>
+      ${n.status === "dismissed" ? "<span>dismissed</span>" : ""}
+      ${n.status === "snoozed" ? "<span>snoozed</span>" : ""}
+      <span class="grow"></span>
+      ${n.url ? `<a class="mini-btn" href="${esc(n.url)}" target="_blank" rel="noopener">open</a>` : ""}
+      <button class="mini-btn act-unstar active" data-id="${n.id}" title="Unstar">&#9733; unstar</button>
+    </div>`;
+}
+
+function renderStarred() {
+  const box = $("starred");
+  const items = state.starred;
+  $("starred-count").textContent = items.length ? `${items.length} pinned` : "";
+  if (!items.length) {
+    box.innerHTML = `<p class="muted">Nothing starred yet &mdash; tap &star; on any reminder to pin it here.</p>`;
+    return;
+  }
+  box.innerHTML = "";
+  for (const n of items) {
+    const el = document.createElement("div");
+    el.className = `note ${n.kind === "digest" ? "digest" : n.priority} ${n.status}`;
+    el.innerHTML = starredRow(n);
+    const u = el.querySelector(".act-unstar");
+    if (u) u.addEventListener("click", () => starAction(n.id, false));
+    box.appendChild(el);
+  }
+}
+
+async function loadStarred() {
+  const r = await fetch("/api/notifications?starred=1&limit=100");
+  const d = await r.json();
+  state.starred = d.notifications || [];
+  renderStarred();
+}
+
 // ---------- live ----------
 function subscribe() {
   const es = new EventSource("/api/events");
@@ -426,7 +501,10 @@ function subscribe() {
         const i = state.feed.findIndex((n) => n.id === ev.notification.id);
         if (i >= 0) state.feed[i] = ev.notification;
         else state.feed.unshift(ev.notification);
+        const si = state.starred.findIndex((n) => n.id === ev.notification.id);
+        if (si >= 0) state.starred[si] = ev.notification;
         renderFeed();
+        renderStarred();
         desktopNotify(ev.notification);
         if (!archive.q) loadArchive(true); // keep the unfiltered archive fresh
       } else if (ev.type === "channel") {
@@ -443,7 +521,7 @@ function subscribe() {
 }
 
 // ---------- boot ----------
-const state = { channels: [], settings: {}, feed: [] };
+const state = { channels: [], settings: {}, feed: [], starred: [] };
 
 async function loadChannels() {
   const r = await fetch("/api/channels");
@@ -466,6 +544,12 @@ async function loadFeed() {
 
 $("master-toggle").addEventListener("click", () => {
   const sec = $("master-panel");
+  const open = sec.getAttribute("data-open") === "1";
+  setOpen(sec, !open);
+});
+
+$("archive-toggle").addEventListener("click", () => {
+  const sec = $("archive-panel");
   const open = sec.getAttribute("data-open") === "1";
   setOpen(sec, !open);
 });
@@ -495,7 +579,7 @@ $("test-btn").addEventListener("click", async () => {
 });
 
 (async function init() {
-  await Promise.all([loadChannels(), loadSettings(), loadFeed(), loadArchive(true)]);
+  await Promise.all([loadChannels(), loadSettings(), loadFeed(), loadArchive(true), loadStarred()]);
   subscribe();
   // Returning from Google OAuth consent.
   try {

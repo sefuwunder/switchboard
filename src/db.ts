@@ -38,6 +38,7 @@ export interface Notification {
   status: string;
   created_at: number;
   snooze_until: number;
+  starred: number;
 }
 
 const DEFAULT_SETTINGS: Record<string, string> = {
@@ -108,6 +109,13 @@ export function openDb(path: string): Database {
 
   const seedSetting = db.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`);
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) seedSetting.run(k, v);
+
+  // Migration: starred column for notifications (older databases predate it).
+  const cols = (db.query(`PRAGMA table_info(notifications)`).all() as { name: string }[])
+    .map((c) => c.name);
+  if (!cols.includes("starred")) {
+    db.exec(`ALTER TABLE notifications ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`);
+  }
   return db;
 }
 
@@ -243,14 +251,21 @@ export function recentNotifications(db: Database, limit = 50): Notification[] {
 
 /** Searchable archive: full-text-ish match on title/body, newest first. */
 export function searchNotifications(
-  db: Database, q: string, limit = 50, offset = 0
+  db: Database, q: string, limit = 50, offset = 0, starredOnly = false
 ): { notifications: Notification[]; total: number } {
   const like = `%${q.replace(/[%_]/g, (c) => `\\${c}`)}%`;
-  const where = q ? `WHERE title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\'` : "";
-  const total = (db.query(`SELECT COUNT(*) AS c FROM notifications ${where}`).get(...(q ? [like, like] : [])) as { c: number }).c;
+  const conds: string[] = [];
+  const args: unknown[] = [];
+  if (starredOnly) conds.push(`starred = 1`);
+  if (q) {
+    conds.push(`(title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\')`);
+    args.push(like, like);
+  }
+  const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+  const total = (db.query(`SELECT COUNT(*) AS c FROM notifications ${where}`).get(...args) as { c: number }).c;
   const notifications = db
     .query(`SELECT * FROM notifications ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
-    .all(...(q ? [like, like] : []), limit, offset) as Notification[];
+    .all(...args, limit, offset) as Notification[];
   return { notifications, total };
 }
 
@@ -258,11 +273,12 @@ export function getNotification(db: Database, id: number): Notification | null {
   return db.query(`SELECT * FROM notifications WHERE id = ?`).get(id) as Notification | null;
 }
 
-export function updateNotification(db: Database, id: number, patch: { status?: string; snooze_until?: number }): void {
+export function updateNotification(db: Database, id: number, patch: { status?: string; snooze_until?: number; starred?: number }): void {
   const sets: string[] = [];
   const vals: unknown[] = [];
   if (patch.status !== undefined) { sets.push("status = ?"); vals.push(patch.status); }
   if (patch.snooze_until !== undefined) { sets.push("snooze_until = ?"); vals.push(patch.snooze_until); }
+  if (patch.starred !== undefined) { sets.push("starred = ?"); vals.push(patch.starred); }
   if (!sets.length) return;
   vals.push(id);
   db.prepare(`UPDATE notifications SET ${sets.join(", ")} WHERE id = ?`).run(...vals);

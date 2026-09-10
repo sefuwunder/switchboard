@@ -254,17 +254,22 @@ async function handle(req: Request): Promise<Response> {
     const limit = Math.max(1, Math.min(200, Number(url.searchParams.get("limit")) || 50));
     const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
     const q = (url.searchParams.get("q") || "").trim().slice(0, 200);
-    if (!q && !offset) return json({ notifications: recentNotifications(db, limit), total: null });
-    const { notifications, total } = searchNotifications(db, q, limit, offset);
+    const starredOnly = url.searchParams.get("starred") === "1";
+    if (!q && !offset && !starredOnly) return json({ notifications: recentNotifications(db, limit), total: null });
+    const { notifications, total } = searchNotifications(db, q, limit, offset, starredOnly);
     return json({ notifications, total });
   }
 
-  mm = p.match(/^\/api\/notifications\/(\d+)\/(dismiss|snooze)$/);
+  mm = p.match(/^\/api\/notifications\/(\d+)\/(dismiss|snooze|star)$/);
   if (mm && m === "POST") {
     const n = getNotification(db, Number(mm[1]));
     if (!n) return json({ error: "unknown notification" }, 404);
     if (mm[2] === "dismiss") {
       updateNotification(db, n.id, { status: "dismissed" });
+    } else if (mm[2] === "star") {
+      const body = await readJson(req);
+      const starred = body.starred !== undefined ? (body.starred ? 1 : 0) : (n.starred ? 0 : 1);
+      updateNotification(db, n.id, { starred });
     } else {
       const body = await readJson(req);
       const minutes = Math.max(1, Math.min(1440, Number(body.minutes) || 30));

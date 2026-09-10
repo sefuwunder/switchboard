@@ -35,6 +35,8 @@ channel reports its error on its card without disturbing the others.
 - **Digest** — low-priority and held signals bundle into one
   `📦 Digest` every N minutes (default 60).
 - **Snooze** — per notification (30m) or per channel (15m/1h/4h).
+- **Starred** — tap ☆ on any reminder to pin it in the Starred section,
+  where it stays until unstarred. Star from the feed or the archive.
 - **Gmail filter** — set any Gmail search query on the Gmail card
   (e.g. `label:clients is:unread`, `in:inbox from:boss@co.com`) to watch
   a folder or label instead of the whole inbox. Applies on the next poll.
@@ -128,7 +130,7 @@ a fresh alert; one that stays due doesn't re-alert every poll.
 - `POST /api/channels/anytype/pair` (`challenge_id`, `code`) → stores the API key
 - `POST /api/channels/anytype/key` (`key`) → verify + store a pasted API key
 - `GET|PATCH /api/settings` (`quiet_enabled`, `quiet_start`, `quiet_end`, `digest_minutes`, `urgent_breaks_quiet`)
-- `GET /api/notifications` (`limit`, `offset`, `q` — searchable archive, newest first; `total` included when searching or paging)
-- `POST /api/notifications/:id/dismiss|snooze`
+- `GET /api/notifications` (`limit`, `offset`, `q` — searchable archive, newest first; `starred=1` — only pinned reminders; `total` included when searching, paging, or filtering starred)
+- `POST /api/notifications/:id/dismiss|snooze|star` (`star` toggles unless given `{ "starred": true|false }`)
 - `POST /api/test` — fire a test signal through the router
 - `GET /api/events` — SSE stream of board events
