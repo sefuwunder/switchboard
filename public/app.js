@@ -123,6 +123,11 @@ function renderChannels() {
             <span class="grow"></span>
             <span title="Last poll">${timeAgo(c.last_poll_at)}${c.last_count ? ` \u00b7 ${c.last_count} seen` : ""}</span>
           </div>
+          ${c.id === "gmail" ? `
+          <div class="ch-row">
+            <span title="Gmail search query — e.g. label:clients is:unread">Filter</span>
+            <input class="mini-btn gmail-query" style="flex:1;min-width:0" placeholder="in:inbox is:unread newer_than:2d" aria-label="Gmail search filter">
+          </div>` : ""}
           <div class="ch-row">
             <span>Snooze channel</span>
             ${[15, 60, 240].map((m) => `<button class="mini-btn snooze" data-min="${m}">${m >= 60 ? m / 60 + "h" : m + "m"}</button>`).join("")}
@@ -147,6 +152,20 @@ function renderChannels() {
       patchChannel(c.id, { min_priority: PRIO[Number(e.target.value)] }));
     el.querySelector(".poll-minutes").addEventListener("change", (e) =>
       patchChannel(c.id, { poll_minutes: Number(e.target.value) }));
+    const gq = el.querySelector(".gmail-query");
+    if (gq) {
+      gq.value = state.settings.gmail_query || "";
+      let deb;
+      const saveQuery = (immediate) => {
+        clearTimeout(deb);
+        const v = gq.value.trim();
+        if (!v) return;
+        if (immediate) patchSettings({ gmail_query: v });
+        else deb = setTimeout(() => patchSettings({ gmail_query: v }), 800);
+      };
+      gq.addEventListener("input", () => saveQuery(false));
+      gq.addEventListener("change", () => saveQuery(true));
+    }
     el.querySelectorAll(".snooze").forEach((b) =>
       b.addEventListener("click", async () => {
         await fetch(`/api/channels/${c.id}/snooze`, {

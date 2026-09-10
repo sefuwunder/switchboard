@@ -47,6 +47,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   digest_minutes: "60",
   urgent_breaks_quiet: "1",
   last_digest_at: "0",
+  gmail_query: "in:inbox is:unread newer_than:2d -category:promotions -category:social",
 };
 
 export function openDb(path: string): Database {

@@ -16,7 +16,7 @@ board stays quiet until you want to tune it.
 
 | Channel | Signal source | Needs |
 |---|---|---|
-| Gmail | Unread inbox mail (last 2 days, no promos/social) | Connect via the patch bay |
+| Gmail | Unread mail matching your filter (default: inbox, last 2 days, no promos/social) | Connect via the patch bay |
 | Google Calendar | Events starting in the next 36h | Connect via the patch bay |
 | ClickUp | Overdue / due-soon tasks on your list | Works out of the box (skill credential or `CLICKUP_TOKEN`) |
 | Anytype | Open tasks from your local Anytype app | Pair via the patch bay card (desktop app must be running) |
@@ -34,6 +34,9 @@ channel reports its error on its card without disturbing the others.
 - **Digest** — low-priority and held signals bundle into one
   `📦 Digest` every N minutes (default 60).
 - **Snooze** — per notification (30m) or per channel (15m/1h/4h).
+- **Gmail filter** — set any Gmail search query on the Gmail card
+  (e.g. `label:clients is:unread`, `in:inbox from:boss@co.com`) to watch
+  a folder or label instead of the whole inbox. Applies on the next poll.
 
 Reminders arrive live over SSE; the 🔔 button enables desktop notifications.
 

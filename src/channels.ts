@@ -95,9 +95,11 @@ async function statusConnectUrl(service: "gmail" | "calendar"): Promise<string |
 const GMAIL_QUERY = "in:inbox is:unread newer_than:2d -category:promotions -category:social";
 const URGENT_SUBJECT = /urgent|asap|action required|deadline|expir|security alert|payment failed/i;
 
-async function pollGmail(): Promise<PollResult> {
+async function pollGmail({ db }: ChannelCtx): Promise<PollResult> {
+  // User-configurable via the Gmail card; falls back to the default query.
+  const query = getSetting(db, "gmail_query").trim() || GMAIL_QUERY;
   const { code, out, err } = await run(
-    ["hatch_gws_cli", "gmail", "+triage", "--query", GMAIL_QUERY, "--max", "20", "--format", "json"],
+    ["hatch_gws_cli", "gmail", "+triage", "--query", query, "--max", "20", "--format", "json"],
     60000
   );
   if (looksDisconnected(out, err)) return { ok: false, signals: [], error: "not_connected" };

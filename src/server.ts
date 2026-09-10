@@ -185,6 +185,7 @@ async function handle(req: Request): Promise<Response> {
     const body = await readJson(req);
     const allowed = new Set([
       "quiet_enabled", "quiet_start", "quiet_end", "digest_minutes", "urgent_breaks_quiet",
+      "gmail_query",
     ]);
     for (const [k, v] of Object.entries(body)) {
       if (!allowed.has(k)) continue;
@@ -192,6 +193,10 @@ async function handle(req: Request): Promise<Response> {
       if (k === "quiet_enabled" || k === "urgent_breaks_quiet") val = v ? "1" : "0";
       if (k === "digest_minutes") val = String(Math.max(5, Math.min(720, Number(v) || 60)));
       if ((k === "quiet_start" || k === "quiet_end") && !/^\d{2}:\d{2}$/.test(val)) continue;
+      if (k === "gmail_query") {
+        val = val.trim().slice(0, 500);
+        if (!val) continue; // never save an empty filter; keep the last good one
+      }
       setSetting(db, k, val);
     }
     const settings = getPublicSettings(db);
