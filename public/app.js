@@ -193,6 +193,8 @@ function renderChannels() {
         renderPairing(el, c);
       } else if (d.connectUrl) {
         cb.outerHTML = `<a class="mini-btn" href="${esc(d.connectUrl)}" target="_blank" rel="noopener">Connect ${esc(c.meta?.label || c.id)} \u2192</a>`;
+      } else if (d.error) {
+        cb.outerHTML = `<span class="error">${esc(d.error)}</span>`;
       } else {
         cb.textContent = "no connect link available";
       }
@@ -443,4 +445,11 @@ $("test-btn").addEventListener("click", async () => {
 (async function init() {
   await Promise.all([loadChannels(), loadSettings(), loadFeed()]);
   subscribe();
+  // Returning from Google OAuth consent.
+  try {
+    if (new URLSearchParams(location.search).get("google") === "connected") {
+      history.replaceState(null, "", location.pathname);
+      await loadChannels();
+    }
+  } catch { /* non-browser stub */ }
 })();

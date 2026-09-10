@@ -4,6 +4,7 @@
 
 import type { Database } from "bun:sqlite";
 import { getSetting, setSetting } from "./db";
+import { googleConfigured, googleAuthUrl, googleGet } from "./google";
 
 export interface SignalInput {
   ext_id: string;
@@ -45,25 +46,6 @@ async function run(cmd: string[], timeoutMs = 45000): Promise<{ code: number; ou
   return { code, out, err };
 }
 
-function tryJson(text: string): any {
-  const t = text.trim();
-  if (!t) return null;
-  try {
-    return JSON.parse(t);
-  } catch {
-    const i = t.indexOf("{");
-    const j = t.lastIndexOf("}");
-    if (i >= 0 && j > i) {
-      try {
-        return JSON.parse(t.slice(i, j + 1));
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-}
-
 function asArray(v: any): any[] {
   if (Array.isArray(v)) return v;
   if (v && typeof v === "object") {
@@ -74,22 +56,8 @@ function asArray(v: any): any[] {
   return [];
 }
 
-function looksDisconnected(out: string, err: string): boolean {
-  return /not_connected|not connected|missing.*connect|authentication required|invalid_grant|surrogate/i.test(out + " " + err);
-}
-
-async function statusConnectUrl(service: "gmail" | "calendar"): Promise<string | null> {
-  try {
-    const { out } = await run(["hatch_gws_cli", service, "status"], 20000);
-    const j = tryJson(out);
-    return j?.connect_url || j?.add_account_url || null;
-  } catch {
-    return null;
-  }
-}
-
 // ---------------------------------------------------------------------------
-// Gmail: unread inbox mail (excluding promos/social) from the last 2 days
+// Gmail: unread mail matching the user's filter, via the Gmail REST API
 // ---------------------------------------------------------------------------
 
 const GMAIL_QUERY = "in:inbox is:unread newer_than:2d -category:promotions -category:social";
@@ -97,27 +65,43 @@ const URGENT_SUBJECT = /urgent|asap|action required|deadline|expir|security aler
 
 async function pollGmail({ db }: ChannelCtx): Promise<PollResult> {
   // User-configurable via the Gmail card; falls back to the default query.
+  if (!googleConfigured()) {
+    return { ok: false, signals: [], error: "Google OAuth not configured — see README" };
+  }
   const query = getSetting(db, "gmail_query").trim() || GMAIL_QUERY;
-  const { code, out, err } = await run(
-    ["hatch_gws_cli", "gmail", "+triage", "--query", query, "--max", "20", "--format", "json"],
-    60000
-  );
-  if (looksDisconnected(out, err)) return { ok: false, signals: [], error: "not_connected" };
-  if (code !== 0) return { ok: false, signals: [], error: (err || out).trim().slice(0, 200) || `exit ${code}` };
-  const rows = asArray(tryJson(out));
-  const signals: SignalInput[] = rows.slice(0, 20).map((m: any, i: number) => {
-    const id = String(m.id || m.message_id || m.threadId || m.thread_id || i);
-    const subject = m.subject || m.Subject || "(no subject)";
-    const from = m.from || m.From || m.sender || "";
-    const snippet = m.snippet || "";
-    return {
+  let list: any;
+  try {
+    list = await googleGet(db, "/gmail/v1/users/me/messages", { q: query, maxResults: "20" });
+  } catch (e: any) {
+    return { ok: false, signals: [], error: String(e.message || e).slice(0, 200) };
+  }
+  if (list?.__disconnected) return { ok: false, signals: [], error: "not_connected" };
+  const signals: SignalInput[] = [];
+  for (const m of asArray(list).slice(0, 20)) {
+    const id = String(m.id || "");
+    if (!id) continue;
+    let full: any = null;
+    try {
+      full = await googleGet(
+        db,
+        `/gmail/v1/users/me/messages/${encodeURIComponent(id)}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`
+      );
+    } catch {
+      continue;
+    }
+    if (!full || full.__disconnected) continue;
+    const headers: any[] = full?.payload?.headers || [];
+    const header = (n: string) => headers.find((h: any) => String(h.name).toLowerCase() === n)?.value || "";
+    const subject = header("subject") || "(no subject)";
+    const from = header("from");
+    signals.push({
       ext_id: `gmail:${id}`,
       title: subject,
-      body: [from, snippet].filter(Boolean).join(" — ").slice(0, 220),
+      body: [from, full.snippet || ""].filter(Boolean).join(" — ").slice(0, 220),
       url: `https://mail.google.com/mail/u/0/#inbox/${id}`,
       priority: URGENT_SUBJECT.test(subject) ? "high" : "normal",
-    };
-  });
+    });
+  }
   return { ok: true, signals };
 }
 
@@ -141,17 +125,27 @@ function relTime(ms: number): string {
   return `in ${Math.floor(h / 24)}d ${h % 24}h`;
 }
 
-async function pollCalendar(): Promise<PollResult> {
-  const { code, out, err } = await run(
-    ["hatch_gws_cli", "calendar", "+agenda", "--days", "2", "--format", "json"],
-    60000
-  );
-  if (looksDisconnected(out, err)) return { ok: false, signals: [], error: "not_connected" };
-  if (code !== 0) return { ok: false, signals: [], error: (err || out).trim().slice(0, 200) || `exit ${code}` };
+async function pollCalendar({ db }: ChannelCtx): Promise<PollResult> {
+  if (!googleConfigured()) {
+    return { ok: false, signals: [], error: "Google OAuth not configured — see README" };
+  }
   const now = Date.now();
   const horizon = now + 36 * 3600 * 1000;
+  let j: any;
+  try {
+    j = await googleGet(db, "/calendar/v3/calendars/primary/events", {
+      timeMin: new Date(now - 5 * 60000).toISOString(),
+      timeMax: new Date(horizon).toISOString(),
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "50",
+    });
+  } catch (e: any) {
+    return { ok: false, signals: [], error: String(e.message || e).slice(0, 200) };
+  }
+  if (j?.__disconnected) return { ok: false, signals: [], error: "not_connected" };
   const signals: SignalInput[] = [];
-  for (const ev of asArray(tryJson(out))) {
+  for (const ev of asArray(j)) {
     const start = eventStartMs(ev);
     if (!start || start < now - 5 * 60000 || start > horizon) continue;
     const id = String(ev.id || ev.eventId || `${ev.summary}-${start}`);
@@ -483,8 +477,8 @@ async function pollAnytype({ db }: ChannelCtx): Promise<PollResult> {
 // ---------------------------------------------------------------------------
 
 export const CHANNEL_DEFS: ChannelDef[] = [
-  { id: "gmail", label: "Gmail", poll: pollGmail, connectUrl: () => statusConnectUrl("gmail") },
-  { id: "calendar", label: "Google Calendar", poll: pollCalendar, connectUrl: () => statusConnectUrl("calendar") },
+  { id: "gmail", label: "Gmail", poll: pollGmail, connectUrl: async () => googleAuthUrl() },
+  { id: "calendar", label: "Google Calendar", poll: pollCalendar, connectUrl: async () => googleAuthUrl() },
   { id: "clickup", label: "ClickUp", poll: pollClickUp, connectUrl: async () => null },
   { id: "anytype", label: "Anytype", poll: pollAnytype, connectUrl: async () => null, pairing: true },
 ];

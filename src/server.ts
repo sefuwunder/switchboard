@@ -10,6 +10,7 @@ import {
 } from "./db";
 import { CHANNEL_DEFS } from "./channels";
 import { anytypeChallenge, anytypePair, anytypeProbe } from "./channels";
+import { googleConfigured, googleExchangeCode } from "./google";
 import { tick, injectTest, type Broadcast } from "./engine";
 
 const PORT = Number(process.env.PORT || 3002);
@@ -143,8 +144,28 @@ async function handle(req: Request): Promise<Response> {
   if (mm && m === "GET") {
     const def = CHANNEL_DEFS.find((d) => d.id === mm![1]);
     if (!def) return json({ error: "unknown channel" }, 404);
+    if ((mm[1] === "gmail" || mm[1] === "calendar") && !googleConfigured()) {
+      return json({
+        connectUrl: null,
+        error: "Google OAuth isn't configured — set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env (see README) and restart.",
+      });
+    }
     const connectUrl = await def.connectUrl();
     return json({ connectUrl, pairing: !!def.pairing });
+  }
+
+  // Google OAuth callback: Google redirects here after consent.
+  mm = p.match(/^\/api\/oauth\/google\/callback$/);
+  if (mm && m === "GET") {
+    const params = new URL(req.url).searchParams;
+    const err = params.get("error");
+    const code = params.get("code");
+    if (err || !code) {
+      return new Response(`Google sign-in failed: ${err || "no authorization code"}`, { status: 400 });
+    }
+    const ok = await googleExchangeCode(db, code);
+    if (!ok) return new Response("Could not exchange the Google authorization code.", { status: 502 });
+    return Response.redirect(new URL("/?google=connected", req.url).toString(), 302);
   }
 
   // Anytype in-app pairing: challenge -> 4-digit code in the desktop app -> API key.

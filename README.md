@@ -16,8 +16,8 @@ board stays quiet until you want to tune it.
 
 | Channel | Signal source | Needs |
 |---|---|---|
-| Gmail | Unread mail matching your filter (default: inbox, last 2 days, no promos/social) | Connect via the patch bay |
-| Google Calendar | Events starting in the next 36h | Connect via the patch bay |
+| Gmail | Unread mail matching your filter (default: inbox, last 2 days, no promos/social) | Google OAuth — see below |
+| Google Calendar | Events starting in the next 36h | Google OAuth — see below |
 | ClickUp | Overdue / due-soon tasks on your list | Works out of the box (skill credential or `CLICKUP_TOKEN`) |
 | Anytype | Open tasks from your local Anytype app | Pair via the patch bay card (desktop app must be running) |
 
@@ -48,6 +48,35 @@ bun start   # → http://localhost:3002
 
 Copy `.env.example` to `.env` to set `CLICKUP_TOKEN` / `CLICKUP_LIST_ID`
 (optional — without a token the ClickUp skill credential is used).
+
+## Google OAuth setup
+
+The Gmail and Google Calendar channels talk to Google directly — no CLI
+needed. You register your own OAuth client once, then the Connect button
+on each card does a normal Google sign-in.
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+   and create a project (any name, e.g. `switchboard`).
+2. **APIs & Services → Library**: enable **Gmail API** and
+   **Google Calendar API**.
+3. **APIs & Services → OAuth consent screen**: choose **External**,
+   fill in the app name and your email. Under **Scopes** add
+   `.../auth/gmail.readonly` and `.../auth/calendar.readonly`.
+   Under **Test users**, add your Gmail address (while the app is in
+   testing mode, only test users can sign in).
+4. **APIs & Services → Credentials → Create Credentials → OAuth client ID**,
+   type **Web application**. Under **Authorized redirect URIs** add:
+   `http://127.0.0.1:3002/api/oauth/google/callback`
+   (if you run Switchboard on another port, use that port instead, or set
+   `GOOGLE_REDIRECT_URI` in `.env` and register the same value).
+5. Copy the **Client ID** and **Client secret** into your `.env`:
+   `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (see `.env.example`).
+6. Restart Switchboard, open the Gmail or Calendar card, click **Connect**,
+   and sign in with Google. One consent covers both channels.
+
+Tokens are stored locally in `switchboard.db` and refreshed silently; if
+Google ever rejects them the card flips back to NOT CONNECTED so you can
+reconnect.
 
 ## Anytype pairing
 

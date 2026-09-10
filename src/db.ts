@@ -155,7 +155,12 @@ export function getSettings(db: Database): Record<string, string> {
 }
 
 /** Settings that must never leave the server (API keys, tokens). */
-const SECRET_SETTINGS = new Set(["anytype_api_key"]);
+const SECRET_SETTINGS = new Set([
+  "anytype_api_key",
+  "google_access_token",
+  "google_refresh_token",
+  "google_token_expiry",
+]);
 
 /** Settings safe to expose to the frontend; secrets are stripped. */
 export function getPublicSettings(db: Database): Record<string, string> {
