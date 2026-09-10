@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Switchboard</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div>
+    <h1>🎛️ Switchboard</h1>
+    <p class="dateline">Patch your services in. Modulate how they reach you.</p>
+  </div>
+  <div class="top-actions">
+    <button id="notify-btn" class="ghost-btn small" title="Allow desktop notifications">🔔 Notify me</button>
+    <button id="test-btn" class="ghost-btn small" title="Fire a test signal through the router">⚡ Test</button>
+  </div>
+</header>
+
+<main>
+  <section class="panel" aria-label="Master controls">
+    <div class="panel-head"><h2>Master</h2><span id="quiet-state" class="badge"></span></div>
+    <div class="master-grid">
+      <label class="ctl">
+        <span>Quiet hours</span>
+        <span class="row">
+          <button id="quiet-toggle" class="switch" role="switch" aria-checked="true"><span class="knob"></span></button>
+          <input id="quiet-start" type="time" value="22:00" aria-label="Quiet hours start">
+          <span class="muted">→</span>
+          <input id="quiet-end" type="time" value="07:00" aria-label="Quiet hours end">
+        </span>
+      </label>
+      <label class="ctl">
+        <span>Digest every</span>
+        <span class="row">
+          <input id="digest-minutes" type="number" min="5" max="720" step="5" value="60">
+          <span class="muted">min</span>
+        </span>
+      </label>
+      <label class="ctl check">
+        <input id="urgent-breaks" type="checkbox" checked>
+        <span>Urgent breaks quiet hours</span>
+      </label>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Channel patch bay">
+    <div class="panel-head"><h2>Patch bay</h2><span class="muted">channels</span></div>
+    <div id="channels" class="channels"><p class="muted">Patching in…</p></div>
+  </section>
+
+  <section class="panel" aria-label="Reminder line out">
+    <div class="panel-head"><h2>Line out</h2><span class="muted">modulated reminders</span></div>
+    <div id="feed" class="feed"><p class="muted">Quiet on the line. Signals will appear here as the board routes them.</p></div>
+  </section>
+</main>
+
+<footer class="foot"><span class="muted">Switchboard · Bun + SQLite · polls locally, nothing leaves your machine except the services you patch in.</span></footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,287 @@
+// Switchboard frontend: patch bay, master controls, live line-out feed.
+const $ = (id) => document.getElementById(id);
+const PRIO = ["low", "normal", "high", "urgent"];
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const state = { channels: [], settings: {}, feed: [] };
+
+// ---------- master ----------
+function quietBadge() {
+  const s = state.settings;
+  const on = s.quiet_enabled === "1";
+  const b = $("quiet-state");
+  b.textContent = on ? `🔇 quiet ${s.quiet_start}–${s.quiet_end}` : "🔊 quiet off";
+  b.className = "badge " + (on ? "" : "off");
+}
+
+async function patchSettings(patch) {
+  const r = await fetch("/api/settings", {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  const d = await r.json();
+  state.settings = d.settings;
+  renderMaster();
+}
+
+function renderMaster() {
+  const s = state.settings;
+  $("quiet-toggle").setAttribute("aria-checked", s.quiet_enabled === "1" ? "true" : "false");
+  $("quiet-start").value = s.quiet_start || "22:00";
+  $("quiet-end").value = s.quiet_end || "07:00";
+  $("digest-minutes").value = s.digest_minutes || 60;
+  $("urgent-breaks").checked = s.urgent_breaks_quiet !== "0";
+  quietBadge();
+}
+
+// ---------- patch bay ----------
+function chStatus(c) {
+  const now = Date.now();
+  if (!c.enabled) return ["off", "PATCHED OUT"];
+  if (c.mode === "muted") return ["off", "MUTED"];
+  if (c.snoozed_until > now) return ["warn", "SNOOZED"];
+  if (c.last_error === "not_connected") return ["warn", "NOT CONNECTED"];
+  if (c.last_error) return ["err", "ERROR"];
+  if (!c.last_poll_at) return ["warn", "QUEUED"];
+  return ["live", "LIVE"];
+}
+
+function timeAgo(ms) {
+  if (!ms) return "never";
+  const s = Math.floor((Date.now() - ms) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  return `${Math.floor(s / 3600)}h ago`;
+}
+
+async function patchChannel(id, patch) {
+  const r = await fetch(`/api/channels/${id}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  const d = await r.json();
+  const i = state.channels.findIndex((c) => c.id === id);
+  if (i >= 0) state.channels[i] = d.channel;
+  renderChannels();
+}
+
+function renderChannels() {
+  const wrap = $("channels");
+  wrap.innerHTML = "";
+  for (const c of state.channels) {
+    const [cls, label] = chStatus(c);
+    const el = document.createElement("div");
+    el.className = "channel" + (c.enabled ? "" : " patched-out");
+    el.innerHTML = `
+      <div class="ch-top">
+        <span class="ch-name">${esc(c.meta?.label || c.id)}</span>
+        <span class="ch-status ${cls}">${label}</span>
+      </div>
+      <div class="ch-row">
+        <button class="mini-btn patch-toggle ${c.enabled ? "active" : ""}">${c.enabled ? "🔌 patched in" : "patch in"}</button>
+        <span class="grow"></span>
+        <button class="mini-btn poll-now">↻ poll now</button>
+      </div>
+      ${c.last_error === "not_connected" ? `<div class="ch-row"><button class="mini-btn connect-btn">Connect ${esc(c.meta?.label || c.id)}</button></div>` : ""}
+      ${c.last_error && c.last_error !== "not_connected" ? `<div class="error">⚠ ${esc(c.last_error)}</div>` : ""}
+      <div class="seg" role="group" aria-label="Routing mode">
+        ${["instant", "digest", "muted"].map((m) =>
+          `<button data-mode="${m}" class="${c.mode === m ? "active" : ""}">${m.toUpperCase()}</button>`).join("")}
+      </div>
+      <div class="fader-row">
+        <div class="labels"><span>Priority fader</span><span><b>${c.min_priority}</b> and up</span></div>
+        <input type="range" class="fader" min="0" max="3" step="1" value="${PRIO.indexOf(c.min_priority)}"
+          aria-label="Minimum priority">
+        <div class="labels"><span>low</span><span>normal</span><span>high</span><span>urgent</span></div>
+      </div>
+      <div class="ch-row">
+        <span>Poll every</span>
+        <input type="number" class="mini-btn poll-input poll-minutes" min="1" max="1440" value="${c.poll_minutes}">
+        <span>min</span>
+        <span class="grow"></span>
+        <span title="Last poll">↻ ${timeAgo(c.last_poll_at)}${c.last_count ? ` · ${c.last_count} seen` : ""}</span>
+      </div>
+      <div class="ch-row">
+        <span>Snooze channel</span>
+        ${[15, 60, 240].map((m) => `<button class="mini-btn snooze" data-min="${m}">${m >= 60 ? m / 60 + "h" : m + "m"}</button>`).join("")}
+        ${c.snoozed_until > Date.now() ? `<button class="mini-btn unsnooze">wake</button>` : ""}
+      </div>`;
+
+    el.querySelector(".patch-toggle").addEventListener("click", () =>
+      patchChannel(c.id, { enabled: !c.enabled }));
+    el.querySelector(".poll-now").addEventListener("click", async () => {
+      await fetch(`/api/channels/${c.id}/poll`, { method: "POST" });
+    });
+    el.querySelectorAll(".seg button").forEach((b) =>
+      b.addEventListener("click", () => patchChannel(c.id, { mode: b.dataset.mode })));
+    el.querySelector(".fader").addEventListener("change", (e) =>
+      patchChannel(c.id, { min_priority: PRIO[Number(e.target.value)] }));
+    el.querySelector(".poll-minutes").addEventListener("change", (e) =>
+      patchChannel(c.id, { poll_minutes: Number(e.target.value) }));
+    el.querySelectorAll(".snooze").forEach((b) =>
+      b.addEventListener("click", async () => {
+        await fetch(`/api/channels/${c.id}/snooze`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ minutes: Number(b.dataset.min) }),
+        });
+        loadChannels();
+      }));
+    const un = el.querySelector(".unsnooze");
+    if (un) un.addEventListener("click", async () => {
+      await fetch(`/api/channels/${c.id}/snooze`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clear: true }),
+      });
+      loadChannels();
+    });
+    const cb = el.querySelector(".connect-btn");
+    if (cb) cb.addEventListener("click", async () => {
+      cb.disabled = true;
+      cb.textContent = "checking…";
+      const r = await fetch(`/api/channels/${c.id}/connect`);
+      const d = await r.json();
+      if (d.connectUrl) {
+        cb.outerHTML = `<a class="mini-btn" href="${esc(d.connectUrl)}" target="_blank" rel="noopener">Connect ${esc(c.meta?.label || c.id)} →</a>`;
+      } else {
+        cb.textContent = "no connect link available";
+      }
+    });
+    wrap.appendChild(el);
+  }
+}
+
+// ---------- line out ----------
+function noteHtml(n) {
+  const items = n.kind === "digest" ? JSON.parse(n.items || "[]") : [];
+  const detail = items.length
+    ? `<details><summary>${items.length} items</summary>` +
+      items.map((it) => `<div>• <b>[${esc(it.priority)}]</b> ${esc(it.title)} <span class="muted">(${esc(it.channel_id)})</span></div>`).join("") +
+      `</details>` : "";
+  return `
+    <div class="note-top">
+      <span class="note-tag">${n.kind === "digest" ? "📦 digest" : esc(n.channel_id || "line")}</span>
+      <span class="note-title">${esc(n.title)}</span>
+    </div>
+    ${n.body ? `<div class="note-body">${esc(n.body)}</div>` : ""}
+    ${detail}
+    <div class="note-meta">
+      <span>${timeAgo(n.created_at)}</span>
+      ${n.status === "snoozed" ? `<span>😴 snoozed</span>` : ""}
+      <span class="grow"></span>
+      ${n.url ? `<a class="mini-btn" href="${esc(n.url)}" target="_blank" rel="noopener">open</a>` : ""}
+      ${n.status !== "dismissed" ? `
+        <button class="mini-btn act-snooze" data-id="${n.id}">snooze 30m</button>
+        <button class="mini-btn act-dismiss" data-id="${n.id}">dismiss</button>` : ""}
+    </div>`;
+}
+
+function renderFeed() {
+  const feed = $("feed");
+  const live = state.feed.filter((n) => n.status !== "dismissed");
+  if (!live.length) {
+    feed.innerHTML = `<p class="muted">Quiet on the line. Signals will appear here as the board routes them.</p>`;
+    return;
+  }
+  feed.innerHTML = "";
+  for (const n of live.slice(0, 50)) {
+    const el = document.createElement("div");
+    el.className = `note ${n.kind === "digest" ? "digest" : n.priority} ${n.status}`;
+    el.innerHTML = noteHtml(n);
+    const d = el.querySelector(".act-dismiss");
+    if (d) d.addEventListener("click", () => noteAction(n.id, "dismiss"));
+    const s = el.querySelector(".act-snooze");
+    if (s) s.addEventListener("click", () => noteAction(n.id, "snooze"));
+    feed.appendChild(el);
+  }
+}
+
+async function noteAction(id, action) {
+  const body = action === "snooze" ? { minutes: 30 } : {};
+  const r = await fetch(`/api/notifications/${id}/${action}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const d = await r.json();
+  const i = state.feed.findIndex((n) => n.id === id);
+  if (i >= 0) state.feed[i] = d.notification;
+  renderFeed();
+}
+
+function desktopNotify(n) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  if (n.status && n.status !== "sent") return;
+  const items = n.kind === "digest" ? JSON.parse(n.items || "[]") : [];
+  new Notification(n.title, {
+    body: (n.body || items.slice(0, 3).map((i) => i.title).join("\n")).slice(0, 200),
+    tag: `switchboard-${n.id}`,
+  });
+}
+
+// ---------- live ----------
+function subscribe() {
+  const es = new EventSource("/api/events");
+  es.onmessage = (e) => {
+    try {
+      const ev = JSON.parse(e.data);
+      if (ev.type === "notification") {
+        const i = state.feed.findIndex((n) => n.id === ev.notification.id);
+        if (i >= 0) state.feed[i] = ev.notification;
+        else state.feed.unshift(ev.notification);
+        renderFeed();
+        desktopNotify(ev.notification);
+      } else if (ev.type === "channel") {
+        const i = state.channels.findIndex((c) => c.id === ev.channel.id);
+        if (i >= 0) state.channels[i] = { ...state.channels[i], ...ev.channel };
+        renderChannels();
+      } else if (ev.type === "settings") {
+        state.settings = ev.settings;
+        renderMaster();
+      }
+    } catch { /* keep-alive */ }
+  };
+  es.onerror = () => setTimeout(() => { es.close(); subscribe(); }, 5000);
+}
+
+// ---------- boot ----------
+async function loadChannels() {
+  const r = await fetch("/api/channels");
+  const d = await r.json();
+  state.channels = d.channels;
+  renderChannels();
+}
+async function loadSettings() {
+  const r = await fetch("/api/settings");
+  const d = await r.json();
+  state.settings = d.settings;
+  renderMaster();
+}
+async function loadFeed() {
+  const r = await fetch("/api/notifications?limit=50");
+  const d = await r.json();
+  state.feed = d.notifications;
+  renderFeed();
+}
+
+$("quiet-toggle").addEventListener("click", () =>
+  patchSettings({ quiet_enabled: state.settings.quiet_enabled !== "1" }));
+$("quiet-start").addEventListener("change", (e) => patchSettings({ quiet_start: e.target.value }));
+$("quiet-end").addEventListener("change", (e) => patchSettings({ quiet_end: e.target.value }));
+$("digest-minutes").addEventListener("change", (e) => patchSettings({ digest_minutes: e.target.value }));
+$("urgent-breaks").addEventListener("change", (e) => patchSettings({ urgent_breaks_quiet: e.target.checked }));
+$("notify-btn").addEventListener("click", async () => {
+  if (!("Notification" in window)) { $("notify-btn").textContent = "🔔 not supported"; return; }
+  const p = await Notification.requestPermission();
+  $("notify-btn").textContent = p === "granted" ? "🔔 on" : "🔔 blocked";
+});
+$("test-btn").addEventListener("click", async () => {
+  await fetch("/api/test", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: "⚡ Test signal", priority: "normal" }),
+  });
+});
+
+(async function init() {
+  await Promise.all([loadChannels(), loadSettings(), loadFeed()]);
+  subscribe();
+})();
