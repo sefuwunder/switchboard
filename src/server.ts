@@ -163,7 +163,7 @@ async function handle(req: Request): Promise<Response> {
   if (mm && m === "GET") {
     const def = CHANNEL_DEFS.find((d) => d.id === mm![1]);
     if (!def) return json({ error: "unknown channel" }, 404);
-    if ((mm[1] === "gmail" || mm[1] === "calendar") && !googleConfigured()) {
+    if (mm[1] === "gmail" && !googleConfigured()) {
       return json({
         connectUrl: null,
         error: "Google OAuth isn't configured — set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env (see README) and restart.",
@@ -231,7 +231,7 @@ async function handle(req: Request): Promise<Response> {
     const body = await readJson(req);
     const allowed = new Set([
       "quiet_enabled", "quiet_start", "quiet_end", "digest_minutes", "urgent_breaks_quiet",
-      "gmail_query",
+      "gmail_query", "gcal_ical_url",
     ]);
     for (const [k, v] of Object.entries(body)) {
       if (!allowed.has(k)) continue;
@@ -242,6 +242,10 @@ async function handle(req: Request): Promise<Response> {
       if (k === "gmail_query") {
         val = val.trim().slice(0, 500);
         if (!val) continue; // never save an empty filter; keep the last good one
+      }
+      if (k === "gcal_ical_url") {
+        val = val.trim().slice(0, 2000);
+        if (val && !/^https:\/\//i.test(val)) continue; // secret feed URLs only
       }
       setSetting(db, k, val);
     }

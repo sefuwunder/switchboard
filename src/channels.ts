@@ -5,6 +5,7 @@
 import type { Database } from "bun:sqlite";
 import { getSetting, setSetting } from "./db";
 import { googleConfigured, googleAuthUrl, googleGet } from "./google";
+import { fetchIcalText, upcomingFromIcs } from "./ical";
 
 export interface SignalInput {
   ext_id: string;
@@ -106,15 +107,8 @@ async function pollGmail({ db }: ChannelCtx): Promise<PollResult> {
 }
 
 // ---------------------------------------------------------------------------
-// Google Calendar: events starting in the next 36 hours
+// Calendar: events starting in the next 36 hours, via iCal feed
 // ---------------------------------------------------------------------------
-
-function eventStartMs(ev: any): number {
-  const s = ev.start;
-  const raw = typeof s === "string" ? s : s?.dateTime || s?.date;
-  const ms = raw ? Date.parse(raw) : NaN;
-  return Number.isNaN(ms) ? 0 : ms;
-}
 
 function relTime(ms: number): string {
   const mins = Math.round((ms - Date.now()) / 60000);
@@ -126,37 +120,26 @@ function relTime(ms: number): string {
 }
 
 async function pollCalendar({ db }: ChannelCtx): Promise<PollResult> {
-  if (!googleConfigured()) {
-    return { ok: false, signals: [], error: "Google OAuth not configured — see README" };
-  }
+  const url = (getSetting(db, "gcal_ical_url") || "").trim();
+  if (!url) return { ok: false, signals: [], error: "not_connected" };
   const now = Date.now();
   const horizon = now + 36 * 3600 * 1000;
-  let j: any;
+  let text: string;
   try {
-    j = await googleGet(db, "/calendar/v3/calendars/primary/events", {
-      timeMin: new Date(now - 5 * 60000).toISOString(),
-      timeMax: new Date(horizon).toISOString(),
-      singleEvents: "true",
-      orderBy: "startTime",
-      maxResults: "50",
-    });
+    text = await fetchIcalText(url);
   } catch (e: any) {
-    return { ok: false, signals: [], error: String(e.message || e).slice(0, 200) };
+    const msg = e?.name === "AbortError" ? "iCal feed timed out" : String(e?.message || e);
+    return { ok: false, signals: [], error: msg.slice(0, 200) };
   }
-  if (j?.__disconnected) return { ok: false, signals: [], error: "not_connected" };
   const signals: SignalInput[] = [];
-  for (const ev of asArray(j)) {
-    const start = eventStartMs(ev);
-    if (!start || start < now - 5 * 60000 || start > horizon) continue;
-    const id = String(ev.id || ev.eventId || `${ev.summary}-${start}`);
-    const summary = ev.summary || ev.title || "(no title)";
-    const where = ev.location ? ` @ ${ev.location}` : "";
+  for (const occ of upcomingFromIcs(text, now - 5 * 60000, horizon)) {
+    const where = occ.location ? ` @ ${occ.location}` : "";
     signals.push({
-      ext_id: `cal:${id}:${start}`,
-      title: summary,
-      body: `Starts ${relTime(start)}${where}`.slice(0, 220),
-      url: ev.htmlLink || ev.link || "",
-      priority: start - now < 3600 * 1000 ? "high" : "normal",
+      ext_id: `cal:${occ.uid}:${occ.startMs}`,
+      title: occ.summary,
+      body: `Starts ${relTime(occ.startMs)}${where}`.slice(0, 220),
+      url: occ.url,
+      priority: occ.startMs - now < 3600 * 1000 ? "high" : "normal",
     });
     if (signals.length >= 20) break;
   }
@@ -559,7 +542,7 @@ async function pollGitHub(): Promise<PollResult> {
 
 export const CHANNEL_DEFS: ChannelDef[] = [
   { id: "gmail", label: "Gmail", poll: pollGmail, connectUrl: async () => googleAuthUrl() },
-  { id: "calendar", label: "Google Calendar", poll: pollCalendar, connectUrl: async () => googleAuthUrl() },
+  { id: "calendar", label: "Google Calendar", poll: pollCalendar, connectUrl: async () => null },
   { id: "clickup", label: "ClickUp", poll: pollClickUp, connectUrl: async () => null },
   { id: "anytype", label: "Anytype", poll: pollAnytype, connectUrl: async () => null, pairing: true },
   {

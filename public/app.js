@@ -113,7 +113,9 @@ function renderChannels() {
             <span class="grow"></span>
             <button class="mini-btn poll-now">Poll now</button>
           </div>
-          ${c.last_error === "not_connected" ? `<div class="ch-row connect-row"><button class="mini-btn connect-btn">Connect ${esc(c.meta?.label || c.id)}</button></div>` : ""}
+          ${c.last_error === "not_connected" ? (c.id === "calendar"
+            ? `<div class="ch-row"><span class="muted">Paste your calendar's secret iCal URL below to patch in.</span></div>`
+            : `<div class="ch-row connect-row"><button class="mini-btn connect-btn">Connect ${esc(c.meta?.label || c.id)}</button></div>`) : ""}
           ${c.last_error && c.last_error !== "not_connected" ? `<div class="error">\u26a0 ${esc(c.last_error)}</div>` : ""}
           <div class="seg" role="group" aria-label="Routing mode">
             ${["instant", "digest", "muted"].map((m) =>
@@ -137,6 +139,12 @@ function renderChannels() {
             <span title="Gmail search query — e.g. label:clients is:unread">Filter</span>
             <input class="mini-btn gmail-query" style="flex:1;min-width:0" placeholder="in:inbox is:unread newer_than:2d" aria-label="Gmail search filter">
           </div>` : ""}
+          ${c.id === "calendar" ? `
+          <div class="ch-row">
+            <span title="Secret iCal feed URL — Google Calendar → Settings → your calendar → Secret address in iCal format">iCal feed</span>
+            <input type="password" class="mini-btn gcal-url" style="flex:1;min-width:0" placeholder="${state.settings.gcal_ical_set === "1" ? "feed saved — paste a new URL to replace" : "https://calendar.google.com/calendar/ical/…/basic.ics"}" aria-label="Calendar iCal feed URL">
+          </div>
+          <div class="ch-row"><span class="muted" style="font-size:11px">Google Calendar → Settings → your calendar → “Secret address in iCal format”.</span></div>` : ""}
           <div class="ch-row">
             <span>Snooze channel</span>
             ${[15, 60, 240].map((m) => `<button class="mini-btn snooze" data-min="${m}">${m >= 60 ? m / 60 + "h" : m + "m"}</button>`).join("")}
@@ -174,6 +182,27 @@ function renderChannels() {
       };
       gq.addEventListener("input", () => saveQuery(false));
       gq.addEventListener("change", () => saveQuery(true));
+    }
+    const gu = el.querySelector(".gcal-url");
+    if (gu) {
+      let deb;
+      const saveUrl = async (immediate) => {
+        clearTimeout(deb);
+        const v = gu.value.trim();
+        if (!immediate && !v) return;
+        const doSave = async () => {
+          await patchSettings({ gcal_ical_url: v });
+          gu.value = "";
+          gu.placeholder = v
+            ? "feed saved — paste a new URL to replace"
+            : "https://calendar.google.com/calendar/ical/…/basic.ics";
+          if (v) fetch(`/api/channels/calendar/poll`, { method: "POST" }); // try it right away
+        };
+        if (immediate) doSave();
+        else deb = setTimeout(doSave, 800);
+      };
+      gu.addEventListener("input", () => saveUrl(false));
+      gu.addEventListener("change", () => saveUrl(true));
     }
     el.querySelectorAll(".snooze").forEach((b) =>
       b.addEventListener("click", async () => {

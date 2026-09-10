@@ -17,7 +17,7 @@ board stays quiet until you want to tune it.
 | Channel | Signal source | Needs |
 |---|---|---|
 | Gmail | Unread mail matching your filter (default: inbox, last 2 days, no promos/social) | Google OAuth — see below |
-| Google Calendar | Events starting in the next 36h | Google OAuth — see below |
+| Google Calendar | Events starting in the next 36h | Secret iCal URL — see below |
 | ClickUp | Overdue / due-soon tasks on your list | Works out of the box (skill credential or `CLICKUP_TOKEN`) |
 | Anytype | Open tasks from your local Anytype app | Pair via the patch bay card (desktop app must be running) |
 | GitHub | Unread notifications (mentions, review requests, CI, releases) | `GITHUB_TOKEN` in `.env` — see below |
@@ -55,17 +55,16 @@ Copy `.env.example` to `.env` to set `CLICKUP_TOKEN` / `CLICKUP_LIST_ID`,
 
 ## Google OAuth setup
 
-The Gmail and Google Calendar channels talk to Google directly — no CLI
-needed. You register your own OAuth client once, then the Connect button
-on each card does a normal Google sign-in.
+The Gmail channel talks to Google directly — no CLI needed. You register
+your own OAuth client once, then the Connect button on the card does a
+normal Google sign-in.
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
    and create a project (any name, e.g. `switchboard`).
-2. **APIs & Services → Library**: enable **Gmail API** and
-   **Google Calendar API**.
+2. **APIs & Services → Library**: enable the **Gmail API**.
 3. **APIs & Services → OAuth consent screen**: choose **External**,
    fill in the app name and your email. Under **Scopes** add
-   `.../auth/gmail.readonly` and `.../auth/calendar.readonly`.
+   `.../auth/gmail.readonly`.
    Under **Test users**, add your Gmail address (while the app is in
    testing mode, only test users can sign in).
 4. **APIs & Services → Credentials → Create Credentials → OAuth client ID**,
@@ -75,12 +74,28 @@ on each card does a normal Google sign-in.
    `GOOGLE_REDIRECT_URI` in `.env` and register the same value).
 5. Copy the **Client ID** and **Client secret** into your `.env`:
    `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (see `.env.example`).
-6. Restart Switchboard, open the Gmail or Calendar card, click **Connect**,
-   and sign in with Google. One consent covers both channels.
+6. Restart Switchboard, open the Gmail card, click **Connect**,
+   and sign in with Google.
 
 Tokens are stored locally in `switchboard.db` and refreshed silently; if
 Google ever rejects them the card flips back to NOT CONNECTED so you can
 reconnect.
+
+## Calendar setup (iCal)
+
+The Calendar channel reads your calendar through its secret iCal feed —
+no OAuth, no API keys on Google's side.
+
+1. Open [Google Calendar](https://calendar.google.com/) → **Settings**
+   (gear icon) → pick your calendar in the left sidebar.
+2. Scroll to **Integrate calendar** and copy the
+   **Secret address in iCal format** (ends in `/basic.ics`).
+3. In Switchboard, expand the **Google Calendar** card and paste the URL
+   into the **iCal feed** field. The card polls immediately.
+
+Events starting in the next 36 hours surface as reminders (high priority
+if starting within the hour), including recurring events. Keep the URL
+private — anyone with it can read your calendar.
 
 ## GitHub setup
 

@@ -49,6 +49,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   urgent_breaks_quiet: "1",
   last_digest_at: "0",
   gmail_query: "in:inbox is:unread newer_than:2d -category:promotions -category:social",
+  gcal_ical_url: "",
 };
 
 export function openDb(path: string): Database {
@@ -166,6 +167,7 @@ export function getSettings(db: Database): Record<string, string> {
 /** Settings that must never leave the server (API keys, tokens). */
 const SECRET_SETTINGS = new Set([
   "anytype_api_key",
+  "gcal_ical_url",
   "google_access_token",
   "google_refresh_token",
   "google_token_expiry",
@@ -178,6 +180,7 @@ export function getPublicSettings(db: Database): Record<string, string> {
   for (const [k, v] of Object.entries(all)) {
     if (!SECRET_SETTINGS.has(k)) out[k] = v;
   }
+  out["gcal_ical_set"] = all["gcal_ical_url"] ? "1" : "";
   return out;
 }
 
