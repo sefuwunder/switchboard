@@ -1,5 +1,5 @@
 // Switchboard server (Bun): personal notification patch bay.
-// Polls Gmail / Google Calendar / ClickUp, modulates the resulting signals
+// Polls the patched-in services, modulates the resulting signals
 // through per-channel faders, quiet hours and digest batching, and streams
 // the modulated reminders to the dashboard over SSE.
 
@@ -10,7 +10,6 @@ import {
 } from "./db";
 import { CHANNEL_DEFS } from "./channels";
 import { anytypeChallenge, anytypePair, anytypeProbe, githubConfigured } from "./channels";
-import { googleConfigured, googleExchangeCode } from "./google";
 import { tick, injectTest, type Broadcast } from "./engine";
 
 const PORT = Number(process.env.PORT || 3002);
@@ -26,7 +25,6 @@ const db: Database = openDb(DB_PATH);
     `INSERT OR IGNORE INTO channels (id, label, mode, min_priority, poll_minutes) VALUES (?, ?, ?, ?, ?)`
   );
   const defaults: Record<string, [string, string, number]> = {
-    gmail: ["digest", "normal", 15],
     calendar: ["instant", "normal", 15],
     clickup: ["digest", "low", 30],
     anytype: ["digest", "low", 30],
@@ -36,6 +34,8 @@ const db: Database = openDb(DB_PATH);
     const [mode, minp, mins] = defaults[d.id] || ["digest", "normal", 15];
     seed.run(d.id, d.label, mode, minp, mins);
   }
+  // Drop channels that no longer exist (e.g. after a channel is removed).
+  db.exec(`DELETE FROM channels WHERE id NOT IN ('calendar','clickup','anytype','github')`);
 }
 
 // ---------------------------------------------------------------------------
@@ -163,12 +163,6 @@ async function handle(req: Request): Promise<Response> {
   if (mm && m === "GET") {
     const def = CHANNEL_DEFS.find((d) => d.id === mm![1]);
     if (!def) return json({ error: "unknown channel" }, 404);
-    if (mm[1] === "gmail" && !googleConfigured()) {
-      return json({
-        connectUrl: null,
-        error: "Google OAuth isn't configured — set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env (see README) and restart.",
-      });
-    }
     if (mm[1] === "github" && !githubConfigured()) {
       return json({
         connectUrl: null,
@@ -177,20 +171,6 @@ async function handle(req: Request): Promise<Response> {
     }
     const connectUrl = await def.connectUrl();
     return json({ connectUrl, pairing: !!def.pairing });
-  }
-
-  // Google OAuth callback: Google redirects here after consent.
-  mm = p.match(/^\/api\/oauth\/google\/callback$/);
-  if (mm && m === "GET") {
-    const params = new URL(req.url).searchParams;
-    const err = params.get("error");
-    const code = params.get("code");
-    if (err || !code) {
-      return new Response(`Google sign-in failed: ${err || "no authorization code"}`, { status: 400 });
-    }
-    const ok = await googleExchangeCode(db, code);
-    if (!ok) return new Response("Could not exchange the Google authorization code.", { status: 502 });
-    return Response.redirect(new URL("/?google=connected", req.url).toString(), 302);
   }
 
   // Anytype in-app pairing: challenge -> 4-digit code in the desktop app -> API key.
@@ -231,7 +211,7 @@ async function handle(req: Request): Promise<Response> {
     const body = await readJson(req);
     const allowed = new Set([
       "quiet_enabled", "quiet_start", "quiet_end", "digest_minutes", "urgent_breaks_quiet",
-      "gmail_query", "gcal_ical_url",
+      "gcal_ical_url",
     ]);
     for (const [k, v] of Object.entries(body)) {
       if (!allowed.has(k)) continue;
@@ -239,10 +219,6 @@ async function handle(req: Request): Promise<Response> {
       if (k === "quiet_enabled" || k === "urgent_breaks_quiet") val = v ? "1" : "0";
       if (k === "digest_minutes") val = String(Math.max(5, Math.min(720, Number(v) || 60)));
       if ((k === "quiet_start" || k === "quiet_end") && !/^\d{2}:\d{2}$/.test(val)) continue;
-      if (k === "gmail_query") {
-        val = val.trim().slice(0, 500);
-        if (!val) continue; // never save an empty filter; keep the last good one
-      }
       if (k === "gcal_ical_url") {
         val = val.trim().slice(0, 2000);
         if (val && !/^https:\/\//i.test(val)) continue; // secret feed URLs only

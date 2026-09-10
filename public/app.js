@@ -7,7 +7,6 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
 // ---------- service logos (minimal line marks) ----------
 const LOGO_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">';
 const LOGOS = {
-  gmail: LOGO_OPEN + '<rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="M4.5 8.5 12 13.5l7.5-5"/></svg>',
   calendar: LOGO_OPEN + '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17"/><path d="M8 3v3.5M16 3v3.5"/><text x="12" y="17.5" text-anchor="middle" font-size="7.5" font-weight="600" fill="currentColor" stroke="none">31</text></svg>',
   clickup: LOGO_OPEN + '<path d="M6.5 3.8 19 13.2l-7.4 1.2-3.4 6.1-1.7-16.7z"/></svg>',
   anytype: LOGO_OPEN + '<path d="M12 4.5 19.5 19.5h-15L12 4.5z"/><path d="M12 12.5v7"/></svg>',
@@ -134,11 +133,6 @@ function renderChannels() {
             <span class="grow"></span>
             <span title="Last poll">${timeAgo(c.last_poll_at)}${c.last_count ? ` \u00b7 ${c.last_count} seen` : ""}</span>
           </div>
-          ${c.id === "gmail" ? `
-          <div class="ch-row">
-            <span title="Gmail search query — e.g. label:clients is:unread">Filter</span>
-            <input class="mini-btn gmail-query" style="flex:1;min-width:0" placeholder="in:inbox is:unread newer_than:2d" aria-label="Gmail search filter">
-          </div>` : ""}
           ${c.id === "calendar" ? `
           <div class="ch-row">
             <span title="Secret iCal feed URL — Google Calendar → Settings → your calendar → Secret address in iCal format">iCal feed</span>
@@ -169,20 +163,6 @@ function renderChannels() {
       patchChannel(c.id, { min_priority: PRIO[Number(e.target.value)] }));
     el.querySelector(".poll-minutes").addEventListener("change", (e) =>
       patchChannel(c.id, { poll_minutes: Number(e.target.value) }));
-    const gq = el.querySelector(".gmail-query");
-    if (gq) {
-      gq.value = state.settings.gmail_query || "";
-      let deb;
-      const saveQuery = (immediate) => {
-        clearTimeout(deb);
-        const v = gq.value.trim();
-        if (!v) return;
-        if (immediate) patchSettings({ gmail_query: v });
-        else deb = setTimeout(() => patchSettings({ gmail_query: v }), 800);
-      };
-      gq.addEventListener("input", () => saveQuery(false));
-      gq.addEventListener("change", () => saveQuery(true));
-    }
     const gu = el.querySelector(".gcal-url");
     if (gu) {
       let deb;
@@ -610,13 +590,6 @@ $("test-btn").addEventListener("click", async () => {
 (async function init() {
   await Promise.all([loadChannels(), loadSettings(), loadFeed(), loadArchive(true), loadStarred()]);
   subscribe();
-  // Returning from Google OAuth consent.
-  try {
-    if (new URLSearchParams(location.search).get("google") === "connected") {
-      history.replaceState(null, "", location.pathname);
-      await loadChannels();
-    }
-  } catch { /* non-browser stub */ }
 })();
 
 // Archive search (debounced) + pagination.

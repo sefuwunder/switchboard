@@ -4,7 +4,6 @@
 
 import type { Database } from "bun:sqlite";
 import { getSetting, setSetting } from "./db";
-import { googleConfigured, googleAuthUrl, googleGet } from "./google";
 import { fetchIcalText, upcomingFromIcs } from "./ical";
 
 export interface SignalInput {
@@ -55,55 +54,6 @@ function asArray(v: any): any[] {
     }
   }
   return [];
-}
-
-// ---------------------------------------------------------------------------
-// Gmail: unread mail matching the user's filter, via the Gmail REST API
-// ---------------------------------------------------------------------------
-
-const GMAIL_QUERY = "in:inbox is:unread newer_than:2d -category:promotions -category:social";
-const URGENT_SUBJECT = /urgent|asap|action required|deadline|expir|security alert|payment failed/i;
-
-async function pollGmail({ db }: ChannelCtx): Promise<PollResult> {
-  // User-configurable via the Gmail card; falls back to the default query.
-  if (!googleConfigured()) {
-    return { ok: false, signals: [], error: "Google OAuth not configured — see README" };
-  }
-  const query = getSetting(db, "gmail_query").trim() || GMAIL_QUERY;
-  let list: any;
-  try {
-    list = await googleGet(db, "/gmail/v1/users/me/messages", { q: query, maxResults: "20" });
-  } catch (e: any) {
-    return { ok: false, signals: [], error: String(e.message || e).slice(0, 200) };
-  }
-  if (list?.__disconnected) return { ok: false, signals: [], error: "not_connected" };
-  const signals: SignalInput[] = [];
-  for (const m of asArray(list).slice(0, 20)) {
-    const id = String(m.id || "");
-    if (!id) continue;
-    let full: any = null;
-    try {
-      full = await googleGet(
-        db,
-        `/gmail/v1/users/me/messages/${encodeURIComponent(id)}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`
-      );
-    } catch {
-      continue;
-    }
-    if (!full || full.__disconnected) continue;
-    const headers: any[] = full?.payload?.headers || [];
-    const header = (n: string) => headers.find((h: any) => String(h.name).toLowerCase() === n)?.value || "";
-    const subject = header("subject") || "(no subject)";
-    const from = header("from");
-    signals.push({
-      ext_id: `gmail:${id}`,
-      title: subject,
-      body: [from, full.snippet || ""].filter(Boolean).join(" — ").slice(0, 220),
-      url: `https://mail.google.com/mail/u/0/#inbox/${id}`,
-      priority: URGENT_SUBJECT.test(subject) ? "high" : "normal",
-    });
-  }
-  return { ok: true, signals };
 }
 
 // ---------------------------------------------------------------------------
@@ -382,6 +332,22 @@ function asBool(v: any): boolean {
   return false;
 }
 
+/** Tag names from a tag-like property value (multi/single select). */
+function propTags(value: any): string[] {
+  const v = unwrap(value);
+  const arr = Array.isArray(v) ? v : [v];
+  const tags: string[] = [];
+  for (const item of arr) {
+    const u = unwrap(item);
+    if (typeof u === "string") tags.push(u);
+    else if (u && typeof u === "object") {
+      const name = (u as any).name ?? (u as any).title ?? (u as any).text;
+      if (typeof name === "string") tags.push(name);
+    }
+  }
+  return tags;
+}
+
 function asMs(v: any): number {
   v = unwrap(v);
   if (typeof v === "number" && Number.isFinite(v)) return v > 1e12 ? v : v * 1000;
@@ -426,7 +392,12 @@ async function pollAnytype({ db }: ChannelCtx): Promise<PollResult> {
     ) continue;
     const done =
       props.some((p) => DONE_PROP.test(p.key) && asBool(p.value)) ||
-      props.some((p) => /^status$/i.test(p.key) && /done|complete|closed/i.test(String(unwrap(p.value) ?? "")));
+      props.some((p) => /^status$/i.test(p.key) && /done|complete|closed/i.test(String(unwrap(p.value) ?? ""))) ||
+      props.some(
+        (p) =>
+          (/tag/i.test(p.key) || /tag/i.test(p.name)) &&
+          propTags(p.value).some((t) => /^done$/i.test(t.trim()))
+      );
     if (done) continue;
     const dueP = props.find((p) => DUE_PROP.test(p.key));
     const dueMs = dueP ? asMs(dueP.value) : 0;
@@ -541,7 +512,6 @@ async function pollGitHub(): Promise<PollResult> {
 // ---------------------------------------------------------------------------
 
 export const CHANNEL_DEFS: ChannelDef[] = [
-  { id: "gmail", label: "Gmail", poll: pollGmail, connectUrl: async () => googleAuthUrl() },
   { id: "calendar", label: "Google Calendar", poll: pollCalendar, connectUrl: async () => null },
   { id: "clickup", label: "ClickUp", poll: pollClickUp, connectUrl: async () => null },
   { id: "anytype", label: "Anytype", poll: pollAnytype, connectUrl: async () => null, pairing: true },

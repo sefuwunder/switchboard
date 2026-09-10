@@ -48,7 +48,6 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   digest_minutes: "60",
   urgent_breaks_quiet: "1",
   last_digest_at: "0",
-  gmail_query: "in:inbox is:unread newer_than:2d -category:promotions -category:social",
   gcal_ical_url: "",
 };
 
@@ -102,7 +101,6 @@ export function openDb(path: string): Database {
     `INSERT OR IGNORE INTO channels (id, label, mode, min_priority, poll_minutes)
      VALUES (?, ?, ?, ?, ?)`
   );
-  seedChannel.run("gmail", "Gmail", "digest", "normal", 15);
   seedChannel.run("calendar", "Google Calendar", "instant", "normal", 15);
   seedChannel.run("clickup", "ClickUp", "digest", "low", 30);
   seedChannel.run("anytype", "Anytype", "digest", "low", 30);
@@ -168,9 +166,6 @@ export function getSettings(db: Database): Record<string, string> {
 const SECRET_SETTINGS = new Set([
   "anytype_api_key",
   "gcal_ical_url",
-  "google_access_token",
-  "google_refresh_token",
-  "google_token_expiry",
 ]);
 
 /** Settings safe to expose to the frontend; secrets are stripped. */
