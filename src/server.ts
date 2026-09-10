@@ -5,10 +5,11 @@
 
 import { Database } from "bun:sqlite";
 import {
-  openDb, getChannels, getChannel, updateChannel, getSettings, setSetting,
+  openDb, getChannels, getChannel, updateChannel, getSettings, getPublicSettings, setSetting,
   recentNotifications, getNotification, updateNotification,
 } from "./db";
 import { CHANNEL_DEFS } from "./channels";
+import { anytypeChallenge, anytypePair, anytypeProbe } from "./channels";
 import { tick, injectTest, type Broadcast } from "./engine";
 
 const PORT = Number(process.env.PORT || 3002);
@@ -143,10 +144,42 @@ async function handle(req: Request): Promise<Response> {
     const def = CHANNEL_DEFS.find((d) => d.id === mm![1]);
     if (!def) return json({ error: "unknown channel" }, 404);
     const connectUrl = await def.connectUrl();
-    return json({ connectUrl });
+    return json({ connectUrl, pairing: !!def.pairing });
   }
 
-  if (p === "/api/settings" && m === "GET") return json({ settings: getSettings(db) });
+  // Anytype in-app pairing: challenge -> 4-digit code in the desktop app -> API key.
+  mm = p.match(/^\/api\/channels\/anytype\/challenge$/);
+  if (mm && m === "POST") {
+    const r = await anytypeChallenge(db);
+    return json(r, r.challenge_id ? 200 : 502);
+  }
+
+  mm = p.match(/^\/api\/channels\/anytype\/pair$/);
+  if (mm && m === "POST") {
+    const body = await readJson(req);
+    const r = await anytypePair(db, String(body.challenge_id || ""), String(body.code || ""));
+    if (r.ok) {
+      const ch = updateChannel(db, "anytype", { last_error: "", last_poll_at: 0 });
+      broadcast({ type: "channel", channel: ch });
+    }
+    return json(r, r.ok ? 200 : 400);
+  }
+
+  mm = p.match(/^\/api\/channels\/anytype\/key$/);
+  if (mm && m === "POST") {
+    const body = await readJson(req);
+    const key = String(body.key || "").trim();
+    if (!key) return json({ ok: false, error: "empty key" }, 400);
+    setSetting(db, "anytype_api_key", key);
+    const probe = await anytypeProbe(db);
+    if (probe.ok) {
+      const ch = updateChannel(db, "anytype", { last_error: "", last_poll_at: 0 });
+      broadcast({ type: "channel", channel: ch });
+    }
+    return json(probe, probe.ok ? 200 : 502);
+  }
+
+  if (p === "/api/settings" && m === "GET") return json({ settings: getPublicSettings(db) });
 
   if (p === "/api/settings" && m === "PATCH") {
     const body = await readJson(req);
@@ -161,7 +194,7 @@ async function handle(req: Request): Promise<Response> {
       if ((k === "quiet_start" || k === "quiet_end") && !/^\d{2}:\d{2}$/.test(val)) continue;
       setSetting(db, k, val);
     }
-    const settings = getSettings(db);
+    const settings = getPublicSettings(db);
     broadcast({ type: "settings", settings });
     return json({ settings });
   }

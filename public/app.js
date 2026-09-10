@@ -83,7 +83,7 @@ function renderChannels() {
         <span class="grow"></span>
         <button class="mini-btn poll-now">↻ poll now</button>
       </div>
-      ${c.last_error === "not_connected" ? `<div class="ch-row"><button class="mini-btn connect-btn">Connect ${esc(c.meta?.label || c.id)}</button></div>` : ""}
+      ${c.last_error === "not_connected" ? `<div class="ch-row connect-row"><button class="mini-btn connect-btn">Connect ${esc(c.meta?.label || c.id)}</button></div>` : ""}
       ${c.last_error && c.last_error !== "not_connected" ? `<div class="error">⚠ ${esc(c.last_error)}</div>` : ""}
       <div class="seg" role="group" aria-label="Routing mode">
         ${["instant", "digest", "muted"].map((m) =>
@@ -141,7 +141,9 @@ function renderChannels() {
       cb.textContent = "checking…";
       const r = await fetch(`/api/channels/${c.id}/connect`);
       const d = await r.json();
-      if (d.connectUrl) {
+      if (d.pairing) {
+        renderPairing(el, c);
+      } else if (d.connectUrl) {
         cb.outerHTML = `<a class="mini-btn" href="${esc(d.connectUrl)}" target="_blank" rel="noopener">Connect ${esc(c.meta?.label || c.id)} →</a>`;
       } else {
         cb.textContent = "no connect link available";
@@ -149,6 +151,101 @@ function renderChannels() {
     });
     wrap.appendChild(el);
   }
+}
+
+// ---------- Anytype in-app pairing ----------
+function pairError(box, msg) {
+  const e = box.querySelector(".pair-err");
+  e.hidden = false;
+  e.textContent = `⚠ ${msg}`;
+}
+
+async function pairDone(box, c) {
+  const hint = box.querySelector(".pair-hint");
+  if (hint) hint.textContent = "Paired ✓ — polling now…";
+  await fetch(`/api/channels/${c.id}/poll`, { method: "POST" });
+  loadChannels();
+}
+
+function renderPairing(el, c) {
+  const row = el.querySelector(".connect-row");
+  const box = document.createElement("div");
+  box.className = "pair-box";
+  box.innerHTML = `
+    <div class="muted">Pair with the Anytype desktop app — it must be running on this machine.</div>
+    <div class="ch-row">
+      <button class="mini-btn pair-req">1 · get pairing code</button>
+      <span class="muted pair-hint"></span>
+    </div>
+    <div class="ch-row pair-code-row" hidden>
+      <span>Code shown in Anytype:</span>
+      <input class="mini-btn pair-code" inputmode="numeric" maxlength="4" placeholder="····" aria-label="4-digit pairing code">
+      <button class="mini-btn pair-go">2 · pair</button>
+    </div>
+    <div class="ch-row">
+      <button class="mini-btn pair-key-toggle">or paste an API key</button>
+    </div>
+    <div class="ch-row pair-key-row" hidden>
+      <input class="mini-btn pair-key" placeholder="API key (Anytype → Settings → API Keys)" aria-label="Anytype API key">
+      <button class="mini-btn pair-key-go">save</button>
+    </div>
+    <div class="error pair-err" hidden></div>`;
+  row.replaceWith(box);
+
+  let challengeId = "";
+  const reqBtn = box.querySelector(".pair-req");
+  reqBtn.addEventListener("click", async () => {
+    reqBtn.disabled = true;
+    const hint = box.querySelector(".pair-hint");
+    hint.textContent = "waiting for Anytype…";
+    try {
+      const r = await fetch(`/api/channels/${c.id}/challenge`, { method: "POST" });
+      const d = await r.json();
+      if (d.challenge_id) {
+        challengeId = d.challenge_id;
+        hint.textContent = "enter the 4-digit code shown in Anytype";
+        box.querySelector(".pair-code-row").hidden = false;
+        box.querySelector(".pair-code").focus();
+      } else {
+        pairError(box, d.error || "could not reach Anytype");
+        reqBtn.disabled = false;
+      }
+    } catch {
+      pairError(box, "could not reach the switchboard");
+      reqBtn.disabled = false;
+    }
+  });
+
+  box.querySelector(".pair-go").addEventListener("click", async () => {
+    const code = box.querySelector(".pair-code").value;
+    const go = box.querySelector(".pair-go");
+    go.disabled = true;
+    const r = await fetch(`/api/channels/${c.id}/pair`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ challenge_id: challengeId, code }),
+    });
+    const d = await r.json();
+    if (d.ok) pairDone(box, c);
+    else { pairError(box, d.error || "pairing failed"); go.disabled = false; }
+  });
+
+  box.querySelector(".pair-key-toggle").addEventListener("click", () => {
+    box.querySelector(".pair-key-row").hidden = false;
+    box.querySelector(".pair-key").focus();
+  });
+
+  box.querySelector(".pair-key-go").addEventListener("click", async () => {
+    const key = box.querySelector(".pair-key").value;
+    const go = box.querySelector(".pair-key-go");
+    go.disabled = true;
+    const r = await fetch(`/api/channels/${c.id}/key`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key }),
+    });
+    const d = await r.json();
+    if (d.ok) pairDone(box, c);
+    else { pairError(box, d.error || "key not accepted"); go.disabled = false; }
+  });
 }
 
 // ---------- line out ----------

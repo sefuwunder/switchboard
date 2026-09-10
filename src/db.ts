@@ -102,6 +102,7 @@ export function openDb(path: string): Database {
   seedChannel.run("gmail", "Gmail", "digest", "normal", 15);
   seedChannel.run("calendar", "Google Calendar", "instant", "normal", 15);
   seedChannel.run("clickup", "ClickUp", "digest", "low", 30);
+  seedChannel.run("anytype", "Anytype", "digest", "low", 30);
 
   const seedSetting = db.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`);
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) seedSetting.run(k, v);
@@ -149,6 +150,19 @@ export function getSettings(db: Database): Record<string, string> {
   const rows = db.query(`SELECT key, value FROM settings`).all() as { key: string; value: string }[];
   const out: Record<string, string> = {};
   for (const r of rows) out[r.key] = r.value;
+  return out;
+}
+
+/** Settings that must never leave the server (API keys, tokens). */
+const SECRET_SETTINGS = new Set(["anytype_api_key"]);
+
+/** Settings safe to expose to the frontend; secrets are stripped. */
+export function getPublicSettings(db: Database): Record<string, string> {
+  const all = getSettings(db);
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(all)) {
+    if (!SECRET_SETTINGS.has(k)) out[k] = v;
+  }
   return out;
 }
 

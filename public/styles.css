@@ -116,6 +116,13 @@ input[type="range"] { width: 100%; accent-color: var(--amber); }
 
 .ch-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
 .ch-row .grow { flex: 1; }
+
+/* Anytype pairing */
+.pair-box { display: grid; gap: 8px; font-size: 12.5px; }
+.pair-box input.mini-btn { cursor: text; color: var(--text); }
+.pair-box input.mini-btn::placeholder { color: var(--muted); }
+.pair-box .pair-code { width: 4.5em; text-align: center; }
+.pair-box .pair-key { flex: 1; min-width: 180px; }
 .mini-btn {
   background: transparent; border: 1px solid var(--border); color: var(--muted);
   border-radius: 7px; padding: 4px 9px; font-size: 12px; cursor: pointer;

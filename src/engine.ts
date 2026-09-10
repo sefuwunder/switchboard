@@ -29,7 +29,7 @@ async function pollChannel(db: Database, ch: Channel, broadcast: Broadcast): Pro
   if (!def) return;
   const now = Date.now();
   try {
-    const res = await def.poll();
+    const res = await def.poll({ db });
     if (!res.ok) {
       updateChannel(db, ch.id, { last_poll_at: now, last_error: res.error || "poll failed", last_count: 0 });
       broadcast({ type: "channel", channel: getChannel(db, ch.id) });

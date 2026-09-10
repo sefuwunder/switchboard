@@ -2,6 +2,9 @@
 // All external CLIs are spawned with a hard timeout; failures are reported
 // as { ok: false } and never throw.
 
+import type { Database } from "bun:sqlite";
+import { getSetting, setSetting } from "./db";
+
 export interface SignalInput {
   ext_id: string;
   title: string;
@@ -16,11 +19,16 @@ export interface PollResult {
   error?: string; // 'not_connected' when the service needs (re)connecting
 }
 
+export interface ChannelCtx {
+  db: Database;
+}
+
 export interface ChannelDef {
   id: string;
   label: string;
-  poll: () => Promise<PollResult>;
+  poll: (ctx: ChannelCtx) => Promise<PollResult>;
   connectUrl: () => Promise<string | null>;
+  pairing?: boolean; // in-app pairing flow instead of an external connect URL
 }
 
 async function run(cmd: string[], timeoutMs = 45000): Promise<{ code: number; out: string; err: string }> {
@@ -249,9 +257,228 @@ async function pollClickUp(): Promise<PollResult> {
 }
 
 // ---------------------------------------------------------------------------
+// Anytype: open tasks from the local desktop app's HTTP API
+// (https://developers.anytype.io). The desktop app serves the API on
+// 127.0.0.1:31009 by default; auth is a per-app API key sent as a Bearer
+// token with an Anytype-Version header.
+// ---------------------------------------------------------------------------
+
+const ANYTYPE_BASE = (process.env.ANYTYPE_BASE_URL || "http://127.0.0.1:31009").replace(/\/+$/, "");
+const ANYTYPE_VERSION = "2025-11-08";
+
+function anytypeKey(db: Database): string {
+  return process.env.ANYTYPE_API_KEY || getSetting(db, "anytype_api_key") || "";
+}
+
+async function anytypeFetch(db: Database, path: string, init?: RequestInit): Promise<Response> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    return await fetch(`${ANYTYPE_BASE}${path}`, {
+      ...init,
+      signal: ctrl.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${anytypeKey(db)}`,
+        "Anytype-Version": ANYTYPE_VERSION,
+        ...(init?.headers || {}),
+      },
+    });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+const ANYTYPE_UNREACHABLE = "Anytype app not reachable — is it running?";
+
+/** Light auth check: GET /v1/spaces. */
+export async function anytypeProbe(db: Database): Promise<{ ok: boolean; error?: string }> {
+  if (!anytypeKey(db)) return { ok: false, error: "not_connected" };
+  try {
+    const r = await anytypeFetch(db, "/v1/spaces");
+    if (r.status === 401 || r.status === 403) return { ok: false, error: "not_connected" };
+    if (!r.ok) return { ok: false, error: `Anytype HTTP ${r.status}` };
+    return { ok: true };
+  } catch {
+    return { ok: false, error: ANYTYPE_UNREACHABLE };
+  }
+}
+
+/** Start pairing: the desktop app shows a 4-digit code for this challenge. */
+export async function anytypeChallenge(db: Database): Promise<{ challenge_id?: string; error?: string }> {
+  try {
+    const r = await anytypeFetch(db, "/v1/auth/challenges", {
+      method: "POST",
+      body: JSON.stringify({ app_name: "switchboard" }), // required by the official spec
+    });
+    if (!r.ok) return { error: `Anytype HTTP ${r.status}` };
+    const j: any = await r.json().catch(() => ({}));
+    const cid = j.challenge_id || j.challengeId || j.id;
+    return cid ? { challenge_id: String(cid) } : { error: "unexpected challenge response" };
+  } catch {
+    return { error: ANYTYPE_UNREACHABLE };
+  }
+}
+
+/** Complete pairing: exchange the 4-digit code for an API key and store it. */
+export async function anytypePair(
+  db: Database, challengeId: string, code: string
+): Promise<{ ok: boolean; error?: string }> {
+  if (!challengeId || !/^\d{4}$/.test(code.trim())) {
+    return { ok: false, error: "enter the 4-digit code shown in Anytype" };
+  }
+  try {
+    const r = await anytypeFetch(db, "/v1/auth/api_keys", {
+      method: "POST",
+      body: JSON.stringify({ challenge_id: challengeId, code: code.trim() }),
+    });
+    if (!r.ok) {
+      return {
+        ok: false,
+        error: r.status === 400 || r.status === 401 || r.status === 404
+          ? "code not accepted — request a fresh code and try again"
+          : `Anytype HTTP ${r.status}`,
+      };
+    }
+    const j: any = await r.json().catch(() => ({}));
+    const key = j.api_key || j.apiKey || j.key;
+    if (!key) return { ok: false, error: "unexpected pair response" };
+    setSetting(db, "anytype_api_key", String(key));
+    return { ok: true };
+  } catch {
+    return { ok: false, error: ANYTYPE_UNREACHABLE };
+  }
+}
+
+// --- defensive response parsing: the API returns objects with metadata and
+// a properties list whose exact shape varies, so unwrap common wrappers. ---
+
+function anyObjects(j: any): any[] {
+  if (Array.isArray(j)) return j;
+  if (j && typeof j === "object") {
+    for (const k of ["data", "objects", "results", "items"]) {
+      if (Array.isArray(j[k])) return j[k];
+    }
+  }
+  return [];
+}
+
+interface AnyProp { key: string; name: string; value: any }
+
+function anyProps(obj: any): AnyProp[] {
+  const p = obj.properties ?? obj.props ?? obj.details ?? obj.relations;
+  if (Array.isArray(p)) {
+    return p.map((x: any) => ({
+      key: String(x.key || x.id || x.name || ""),
+      name: String(x.name || x.key || x.id || ""),
+      value: x.value ?? x.checkbox ?? x.date ?? x.text ?? x.number ?? x.select ?? x.status ?? x,
+    }));
+  }
+  if (p && typeof p === "object") {
+    return Object.entries(p).map(([k, v]) => ({ key: k, name: k, value: v }));
+  }
+  return [];
+}
+
+const WRAP_KEYS = new Set(["checkbox", "date", "number", "text", "select", "status", "timestamp", "value"]);
+
+function unwrap(v: any): any {
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    const keys = Object.keys(v);
+    if (keys.length === 1 && WRAP_KEYS.has(keys[0])) {
+      const inner = v[keys[0]];
+      if (inner && typeof inner === "object" && "name" in inner) return (inner as any).name;
+      return inner;
+    }
+    if (typeof (v as any).timestamp === "number") return (v as any).timestamp;
+  }
+  return v;
+}
+
+function asBool(v: any): boolean {
+  v = unwrap(v);
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string") return /^(true|1|yes|done|checked)$/i.test(v.trim());
+  return false;
+}
+
+function asMs(v: any): number {
+  v = unwrap(v);
+  if (typeof v === "number" && Number.isFinite(v)) return v > 1e12 ? v : v * 1000;
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (!t) return 0;
+    if (/^\d+$/.test(t)) {
+      const n = Number(t);
+      return n > 1e12 ? n : n * 1000;
+    }
+    const ms = Date.parse(t);
+    return Number.isNaN(ms) ? 0 : ms;
+  }
+  return 0;
+}
+
+const DONE_PROP = /done|complete|finished|checked/i;
+const DUE_PROP = /due|deadline/i;
+const ARCHIVE_PROP = /archiv|trash|delet/i;
+
+async function pollAnytype({ db }: ChannelCtx): Promise<PollResult> {
+  if (!anytypeKey(db)) return { ok: false, signals: [], error: "not_connected" };
+  let res: Response;
+  try {
+    res = await anytypeFetch(db, "/v1/search?limit=100", {
+      method: "POST",
+      body: JSON.stringify({ query: "", types: ["task"] }),
+    });
+  } catch {
+    return { ok: false, signals: [], error: ANYTYPE_UNREACHABLE };
+  }
+  if (res.status === 401 || res.status === 403) return { ok: false, signals: [], error: "not_connected" };
+  if (!res.ok) return { ok: false, signals: [], error: `Anytype HTTP ${res.status}` };
+  const objs = anyObjects(await res.json().catch(() => null));
+  const now = Date.now();
+  const signals: SignalInput[] = [];
+  for (const o of objs) {
+    const props = anyProps(o);
+    if (
+      asBool(o.is_archived) || asBool(o.archived) ||
+      props.some((p) => ARCHIVE_PROP.test(p.key) && asBool(p.value))
+    ) continue;
+    const done =
+      props.some((p) => DONE_PROP.test(p.key) && asBool(p.value)) ||
+      props.some((p) => /^status$/i.test(p.key) && /done|complete|closed/i.test(String(unwrap(p.value) ?? "")));
+    if (done) continue;
+    const dueP = props.find((p) => DUE_PROP.test(p.key));
+    const dueMs = dueP ? asMs(dueP.value) : 0;
+    let priority: SignalInput["priority"] = "low";
+    let when = "no due date";
+    if (dueMs) {
+      const days = Math.ceil((dueMs - now) / 86400000);
+      when = days < 0 ? `overdue by ${-days}d` : days === 0 ? "due today" : `due in ${days}d`;
+      priority = days < 0 ? "high" : days <= 2 ? "normal" : "low";
+    }
+    const name = o.name || o.title || "(untitled task)";
+    signals.push({
+      ext_id: `anytype:${o.id || name}`,
+      title: name,
+      body: `Anytype task · ${when}`.slice(0, 220),
+      url: "",
+      priority,
+    });
+    if (signals.length >= 30) break;
+  }
+  // Most pressing first so the digest leads with what matters.
+  const rank = { urgent: 0, high: 1, normal: 2, low: 3 };
+  signals.sort((a, b) => rank[a.priority] - rank[b.priority]);
+  return { ok: true, signals };
+}
+
+// ---------------------------------------------------------------------------
 
 export const CHANNEL_DEFS: ChannelDef[] = [
   { id: "gmail", label: "Gmail", poll: pollGmail, connectUrl: () => statusConnectUrl("gmail") },
   { id: "calendar", label: "Google Calendar", poll: pollCalendar, connectUrl: () => statusConnectUrl("calendar") },
   { id: "clickup", label: "ClickUp", poll: pollClickUp, connectUrl: async () => null },
+  { id: "anytype", label: "Anytype", poll: pollAnytype, connectUrl: async () => null, pairing: true },
 ];
