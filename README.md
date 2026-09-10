@@ -7,6 +7,11 @@ modulated reminders stream out on a live line.
 
 Built with [Bun](https://bun.sh) + SQLite. Zero npm dependencies.
 
+The UI is Solarized (light by default, dark via the ◐ toggle — remembered
+per browser). Each service gets its own logo on its card, and channel
+controls plus the Master section tuck under foldable subsections so the
+board stays quiet until you want to tune it.
+
 ## Channels
 
 | Channel | Signal source | Needs |
