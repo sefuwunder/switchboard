@@ -97,7 +97,8 @@ async function pollCalendar({ db }: ChannelCtx): Promise<PollResult> {
 }
 
 // ---------------------------------------------------------------------------
-// ClickUp: overdue + due-soon tasks on the watched list
+// ClickUp: nag mode — every outstanding task re-notifies once a day until
+// it's marked done (ext_id is day-bucketed so the dedupe naturally expires).
 // ---------------------------------------------------------------------------
 
 const CLICKUP_LIST = process.env.CLICKUP_LIST_ID || "901418249044";
@@ -152,6 +153,8 @@ async function pollClickUp(): Promise<PollResult> {
     return { ok: false, signals: [], error: msg.slice(0, 200) };
   }
   const now = Date.now();
+  const d = new Date(now);
+  const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const signals: SignalInput[] = [];
   for (const t of raw) {
     const status = String((t.status && t.status.status) || t.status || "");
@@ -171,7 +174,7 @@ async function pollClickUp(): Promise<PollResult> {
       priority = days < 0 ? "high" : days <= 2 ? "normal" : "low";
     }
     signals.push({
-      ext_id: `clickup:${id}`,
+      ext_id: `clickup:${id}:${day}`, // nag: fresh key each day until done
       title: t.name || "(untitled task)",
       body: `${status}${when ? ` · ${when}` : ""}`.slice(0, 220),
       url: `https://app.clickup.com/t/${id}`,

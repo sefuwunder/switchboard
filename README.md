@@ -17,7 +17,7 @@ board stays quiet until you want to tune it.
 | Channel | Signal source | Needs |
 |---|---|---|
 | Google Calendar | Events starting in the next 36h | Secret iCal URL — see below |
-| ClickUp | Overdue / due-soon tasks on your list | Works out of the box (skill credential or `CLICKUP_TOKEN`) |
+| ClickUp | Outstanding tasks on your list — nag mode: re-notifies daily until marked done | Works out of the box (skill credential or `CLICKUP_TOKEN`) |
 | Anytype | Open tasks from your local Anytype app | Pair via the patch bay card (desktop app must be running) |
 | GitHub | Unread notifications (mentions, review requests, CI) + repo activity (pushes, issues, PRs, releases, stars) | `GITHUB_TOKEN` in `.env` — see below |
 
