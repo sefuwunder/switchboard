@@ -10,7 +10,7 @@ import {
 } from "./db";
 import { CHANNEL_DEFS } from "./channels";
 import { anytypeChallenge, anytypePair, anytypeProbe, githubConfigured } from "./channels";
-import { tick, injectTest, type Broadcast } from "./engine";
+import { tick, injectTest, pollNow, type Broadcast } from "./engine";
 
 const PORT = Number(process.env.PORT || 3002);
 const PUBLIC_DIR = new URL("../public/", import.meta.url).pathname;
@@ -141,10 +141,8 @@ async function handle(req: Request): Promise<Response> {
 
   mm = p.match(/^\/api\/channels\/([\w-]+)\/poll$/);
   if (mm && m === "POST") {
-    const ch = getChannel(db, mm[1]);
-    if (!ch) return json({ error: "unknown channel" }, 404);
-    updateChannel(db, ch.id, { last_poll_at: 0 });
-    tick(db, broadcast).catch(() => {});
+    const ok = await pollNow(db, broadcast, mm[1]);
+    if (!ok) return json({ error: "unknown channel" }, 404);
     return json({ ok: true });
   }
 

@@ -155,8 +155,17 @@ function renderChannels() {
     });
     el.querySelector(".patch-toggle").addEventListener("click", () =>
       patchChannel(c.id, { enabled: !c.enabled }));
-    el.querySelector(".poll-now").addEventListener("click", async () => {
-      await fetch(`/api/channels/${c.id}/poll`, { method: "POST" });
+    const pollBtn = el.querySelector(".poll-now");
+    pollBtn.addEventListener("click", async () => {
+      pollBtn.disabled = true;
+      const label = pollBtn.textContent;
+      pollBtn.textContent = "Polling…";
+      try {
+        await fetch(`/api/channels/${c.id}/poll`, { method: "POST" });
+      } finally {
+        pollBtn.disabled = false;
+        pollBtn.textContent = label;
+      }
     });
     el.querySelectorAll(".seg button").forEach((b) =>
       b.addEventListener("click", () => patchChannel(c.id, { mode: b.dataset.mode })));

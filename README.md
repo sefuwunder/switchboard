@@ -34,7 +34,9 @@ channel reports its error on its card without disturbing the others.
 - **DND** — the toggle on the Master lead line holds *all* notifications
   (even urgent) until switched off; held signals route normally afterwards.
 - **Digest** — low-priority and held signals bundle into one
-  `📦 Digest` every N minutes (default 60).
+  `📦 Digest` every N minutes (default 60). A channel's **Poll now**
+  button polls immediately and flushes the pending digest, so you see
+  what's outstanding right away.
 - **Snooze** — per notification (30m) or per channel (15m/1h/4h).
 - **Starred** — tap ☆ on any reminder to pin it in the Starred section,
   where it stays until unstarred. Star from the feed or the archive.

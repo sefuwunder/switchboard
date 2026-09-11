@@ -89,10 +89,10 @@ function routeSignals(db: Database, s: Record<string, string>, broadcast: Broadc
   }
 }
 
-function maybeDigest(db: Database, s: Record<string, string>, broadcast: Broadcast, now: number): void {
+function maybeDigest(db: Database, s: Record<string, string>, broadcast: Broadcast, now: number, force = false): void {
   const interval = Math.max(5, Number(s.digest_minutes) || 60) * 60000;
   const last = Number(s.last_digest_at) || 0;
-  if (now - last < interval) return;
+  if (!force && now - last < interval) return;
   const queued = digestQueue(db);
   if (!queued.length) return; // empty line: leave last_digest_at alone so queued signals don't wait a full extra interval
   setSetting(db, "last_digest_at", String(now));
@@ -156,4 +156,21 @@ export function injectTest(db: Database, broadcast: Broadcast, title: string, pr
   );
   if (id === null) return;
   routeSignals(db, getSettings(db), broadcast, Date.now());
+}
+
+/**
+ * Poll one channel right now (awaited), route its signals, and flush the
+ * pending digest so the user sees what's outstanding immediately.
+ * Used by the Poll-now button. Returns false for an unknown channel.
+ */
+export async function pollNow(db: Database, broadcast: Broadcast, channelId: string): Promise<boolean> {
+  const ch = getChannel(db, channelId);
+  if (!ch) return false;
+  updateChannel(db, ch.id, { last_poll_at: 0 });
+  await pollChannel(db, ch, broadcast);
+  const s = getSettings(db);
+  const now = Date.now();
+  routeSignals(db, s, broadcast, now);
+  if (s.dnd !== "1") maybeDigest(db, s, broadcast, now, true);
+  return true;
 }
