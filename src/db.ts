@@ -47,6 +47,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   quiet_end: "07:00",
   digest_minutes: "60",
   urgent_breaks_quiet: "1",
+  dnd: "0",
   last_digest_at: "0",
   gcal_ical_url: "",
 };

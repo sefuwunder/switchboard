@@ -44,6 +44,7 @@ async function patchSettings(patch) {
 function renderMaster() {
   const s = state.settings;
   $("quiet-toggle").setAttribute("aria-checked", s.quiet_enabled === "1" ? "true" : "false");
+  $("dnd-toggle").setAttribute("aria-checked", s.dnd === "1" ? "true" : "false");
   $("quiet-start").value = s.quiet_start || "22:00";
   $("quiet-end").value = s.quiet_end || "07:00";
   $("digest-minutes").value = s.digest_minutes || 60;
@@ -571,6 +572,8 @@ $("theme-btn").addEventListener("click", () => {
 
 $("quiet-toggle").addEventListener("click", () =>
   patchSettings({ quiet_enabled: state.settings.quiet_enabled !== "1" }));
+$("dnd-toggle").addEventListener("click", () =>
+  patchSettings({ dnd: state.settings.dnd !== "1" }));
 $("quiet-start").addEventListener("change", (e) => patchSettings({ quiet_start: e.target.value }));
 $("quiet-end").addEventListener("change", (e) => patchSettings({ quiet_end: e.target.value }));
 $("digest-minutes").addEventListener("change", (e) => patchSettings({ digest_minutes: e.target.value }));

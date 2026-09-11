@@ -103,6 +103,10 @@ main { max-width: 860px; margin: 0 auto; display: grid; gap: 14px; }
 .panel-sub { font-size: 12.5px; color: var(--muted); }
 
 /* foldable sections */
+.master-lead { display: flex; align-items: center; gap: 10px; }
+.master-lead .fold-head { flex: 1 1 auto; min-width: 0; width: auto; }
+.dnd-wrap { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.dnd-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--muted); }
 .fold-head {
   width: 100%; display: flex; align-items: center; gap: 10px;
   background: none; border: none; padding: 2px 0; cursor: pointer;

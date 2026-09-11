@@ -1,6 +1,6 @@
 // Modulation engine: polls channels, dedupes signals, and routes them
 // through the user's board settings (mode, priority fader, quiet hours,
-// digest batching, snooze) into notifications.
+// DND, digest batching, snooze) into notifications.
 
 import type { Database } from "bun:sqlite";
 import {
@@ -60,9 +60,11 @@ function emitInstant(db: Database, s: Signal, broadcast: Broadcast): void {
 }
 
 function routeSignals(db: Database, s: Record<string, string>, broadcast: Broadcast, now: number): void {
+  const dnd = s.dnd === "1";
   const quiet = inQuietHours(s, new Date(now));
   const urgentBreaks = s.urgent_breaks_quiet === "1";
   for (const sig of unprocessedSignals(db)) {
+    if (dnd) continue; // DND: hold everything for later; do NOT mark processed
     const ch = getChannel(db, sig.channel_id);
     if (!ch || !ch.enabled || ch.mode === "muted") {
       markProcessed(db, sig.id); // dropped: patch pulled or channel muted

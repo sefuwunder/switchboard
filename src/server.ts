@@ -211,12 +211,12 @@ async function handle(req: Request): Promise<Response> {
     const body = await readJson(req);
     const allowed = new Set([
       "quiet_enabled", "quiet_start", "quiet_end", "digest_minutes", "urgent_breaks_quiet",
-      "gcal_ical_url",
+      "dnd", "gcal_ical_url",
     ]);
     for (const [k, v] of Object.entries(body)) {
       if (!allowed.has(k)) continue;
       let val = String(v);
-      if (k === "quiet_enabled" || k === "urgent_breaks_quiet") val = v ? "1" : "0";
+      if (k === "quiet_enabled" || k === "urgent_breaks_quiet" || k === "dnd") val = v ? "1" : "0";
       if (k === "digest_minutes") val = String(Math.max(5, Math.min(720, Number(v) || 60)));
       if ((k === "quiet_start" || k === "quiet_end") && !/^\d{2}:\d{2}$/.test(val)) continue;
       if (k === "gcal_ical_url") {

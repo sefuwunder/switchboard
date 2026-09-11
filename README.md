@@ -31,6 +31,8 @@ channel reports its error on its card without disturbing the others.
 - **Priority fader** — minimum priority (`low → urgent`) that gets through.
 - **Quiet hours** — default 22:00–07:00; instant signals wait for the digest.
   Urgent signals can break through (toggleable).
+- **DND** — the toggle on the Master lead line holds *all* notifications
+  (even urgent) until switched off; held signals route normally afterwards.
 - **Digest** — low-priority and held signals bundle into one
   `📦 Digest` every N minutes (default 60).
 - **Snooze** — per notification (30m) or per channel (15m/1h/4h).

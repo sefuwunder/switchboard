@@ -23,11 +23,17 @@
 
 <main>
   <section class="panel" id="master-panel" data-open="0" aria-label="Master controls">
-    <button class="fold-head" id="master-toggle" aria-expanded="false">
-      <svg class="sec-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2.2"/><circle cx="15" cy="12" r="2.2"/><circle cx="7.5" cy="17" r="2.2"/></svg>
-      <h2>Master</h2><span id="quiet-state" class="badge"></span>
-      <span class="chev" aria-hidden="true">&#8250;</span>
-    </button>
+    <div class="master-lead">
+      <button class="fold-head" id="master-toggle" aria-expanded="false">
+        <svg class="sec-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2.2"/><circle cx="15" cy="12" r="2.2"/><circle cx="7.5" cy="17" r="2.2"/></svg>
+        <h2>Master</h2><span id="quiet-state" class="badge"></span>
+        <span class="chev" aria-hidden="true">&#8250;</span>
+      </button>
+      <span class="dnd-wrap">
+        <span class="dnd-label" aria-hidden="true">DND</span>
+        <button id="dnd-toggle" class="switch" role="switch" aria-checked="false" aria-label="Do not disturb" title="Do not disturb — hold all notifications until switched off"><span class="knob"></span></button>
+      </span>
+    </div>
     <div class="foldable"><div class="foldable-inner">
       <div class="master-grid">
         <label class="ctl">
