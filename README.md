@@ -76,7 +76,8 @@ The GitHub channel polls two feeds via the REST API:
   GitHub clears it from the next poll.
 - **Repo activity** — pushes, issues, PRs, releases, and stars on your
   10 most recently pushed repos. Releases route as **high**, pushes /
-  issues / PRs as **normal**, stars and forks as **low**.
+  issues / PRs as **normal**, stars and forks as **low**. Push
+  notifications list the commit messages (up to 3, truncated).
 
 1. Create a **fine-grained personal access token** at
    [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new).

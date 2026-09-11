@@ -508,9 +508,17 @@ function repoEventSignal(ev: any): SignalInput | null {
       const commits = Array.isArray(p.commits) ? p.commits : [];
       const n = Number(p.size) || commits.length || 1; // size is authoritative; commits may be truncated
       const branch = String(p.ref || "").replace(/^refs\/heads\//, "");
-      const msg = commits[0]?.message ? String(commits[0].message).split("\n")[0].slice(0, 120) : "";
+      const firstLines = commits.slice(0, 3)
+        .map((c) => String(c?.message || "").split("\n")[0].trim())
+        .filter(Boolean);
+      const perMsg = firstLines.length > 1 ? 60 : 140;
+      const shown = firstLines.map(
+        (m) => `"${m.length > perMsg ? m.slice(0, perMsg - 1) + "…" : m}"`);
+      const rest = n - firstLines.length;
+      if (firstLines.length > 0 && rest > 0) shown.push(`(+${rest} more)`);
       title = `⬆ ${n} commit${n === 1 ? "" : "s"} → ${repo}${branch ? `:${branch}` : ""}`;
-      body = [actor && `by ${actor}`, msg].filter(Boolean).join(" — ").slice(0, 220);
+      body = [actor && `by ${actor}`, shown.join(" · ")]
+        .filter(Boolean).join(" — ").slice(0, 280);
       url = `${base}/commits${branch ? `/${branch}` : ""}`;
       break;
     }
