@@ -19,7 +19,7 @@ board stays quiet until you want to tune it.
 | Google Calendar | Events starting in the next 36h | Secret iCal URL — see below |
 | ClickUp | Overdue / due-soon tasks on your list | Works out of the box (skill credential or `CLICKUP_TOKEN`) |
 | Anytype | Open tasks from your local Anytype app | Pair via the patch bay card (desktop app must be running) |
-| GitHub | Unread notifications (mentions, review requests, CI, releases) | `GITHUB_TOKEN` in `.env` — see below |
+| GitHub | Unread notifications (mentions, review requests, CI) + repo activity (pushes, issues, PRs, releases, stars) | `GITHUB_TOKEN` in `.env` — see below |
 
 Each channel poll is a local call with a hard timeout; a failing
 channel reports its error on its card without disturbing the others.
@@ -67,19 +67,25 @@ private — anyone with it can read your calendar.
 
 ## GitHub setup
 
-The GitHub channel polls your unread notifications via the REST API.
+The GitHub channel polls two feeds via the REST API:
+
+- **Notifications** — your unread inbox (mentions, review requests,
+  assignments, security alerts). Mentions, review requests, assignments,
+  and security alerts route as **high** priority; everything else is
+  normal. The API only lists unread notifications, so marking one read on
+  GitHub clears it from the next poll.
+- **Repo activity** — pushes, issues, PRs, releases, and stars on your
+  10 most recently pushed repos. Releases route as **high**, pushes /
+  issues / PRs as **normal**, stars and forks as **low**.
 
 1. Create a **fine-grained personal access token** at
    [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new).
 2. Under **Repository access** choose "Public repositories" (or "All
-   repositories" if you want private repo notifications too), then under
+   repositories" if you want private repo activity too), then under
    **Permissions → Account permissions** grant **Notifications: Read-only**.
 3. Copy the token into your `.env` as `GITHUB_TOKEN` (see `.env.example`)
    and restart Switchboard.
 
-Mentions, review requests, assignments, and security alerts route as
-**high** priority; everything else is normal. The API only lists unread
-notifications, so marking one read on GitHub clears it from the next poll.
 If the token is missing or revoked, the card shows NOT CONNECTED with a
 link back to the token page.
 

@@ -431,9 +431,10 @@ async function pollAnytype({ db }: ChannelCtx): Promise<PollResult> {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// GitHub: unread notifications (mentions, review requests, CI, releases…)
-// via the REST API. Needs a personal access token in GITHUB_TOKEN with
-// the "Notifications: read-only" scope (see README).
+// GitHub: unread notifications (mentions, review requests, CI…) plus repo
+// activity (pushes, issues, PRs, releases, stars) via the REST API.
+// Needs a personal access token in GITHUB_TOKEN with the
+// "Notifications: read-only" scope (see README).
 // ---------------------------------------------------------------------------
 
 const GITHUB_API = process.env.GITHUB_API_BASE || "https://api.github.com";
@@ -448,6 +449,31 @@ export function githubConfigured(): boolean {
 
 export function githubSetupUrl(): string {
   return "https://github.com/settings/personal-access-tokens/new";
+}
+
+/** GET a GitHub API path; throws on transport or HTTP error (err.status set). */
+async function ghGet(path: string): Promise<any> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const res = await fetch(`${GITHUB_API}${path}`, {
+      headers: {
+        Authorization: `Bearer ${githubToken()}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "switchboard/1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      signal: ctrl.signal,
+    });
+    if (!res.ok) {
+      const e: any = new Error(`GitHub HTTP ${res.status}`);
+      e.status = res.status;
+      throw e;
+    }
+    return await res.json().catch(() => []);
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 /** Turn a notification's API URL into the human URL on github.com. */
@@ -467,30 +493,82 @@ function githubHtmlUrl(n: any): string {
 
 const GITHUB_HIGH_REASON = /^(mention|review_requested|assign|security_alert)$/;
 
+/** Map one repo event to a signal, or null for event types we don't route. */
+function repoEventSignal(ev: any): SignalInput | null {
+  const id = String(ev.id || "");
+  const type = String(ev.type || "");
+  const repo: string = ev.repo?.name || "";
+  const actor: string = ev.actor?.login || "";
+  const p = ev.payload || {};
+  if (!id || !repo) return null;
+  const base = `https://github.com/${repo}`;
+  let title = "", body = "", url = base, priority = "normal";
+  switch (type) {
+    case "PushEvent": {
+      const commits = Array.isArray(p.commits) ? p.commits : [];
+      const n = Number(p.size) || commits.length || 1; // size is authoritative; commits may be truncated
+      const branch = String(p.ref || "").replace(/^refs\/heads\//, "");
+      const msg = commits[0]?.message ? String(commits[0].message).split("\n")[0].slice(0, 120) : "";
+      title = `⬆ ${n} commit${n === 1 ? "" : "s"} → ${repo}${branch ? `:${branch}` : ""}`;
+      body = [actor && `by ${actor}`, msg].filter(Boolean).join(" — ").slice(0, 220);
+      url = `${base}/commits${branch ? `/${branch}` : ""}`;
+      break;
+    }
+    case "IssuesEvent": {
+      const action = String(p.action || "");
+      if (!["opened", "closed", "reopened"].includes(action)) return null;
+      const num = p.issue?.number ?? "";
+      title = `Issue #${num} ${action} — ${repo}`;
+      body = [p.issue?.title, actor && `by ${actor}`].filter(Boolean).join(" — ").slice(0, 220);
+      url = `${base}/issues/${num}`;
+      break;
+    }
+    case "PullRequestEvent": {
+      const action = String(p.action || "");
+      const merged = action === "closed" && p.pull_request?.merged;
+      if (!["opened", "closed", "reopened"].includes(action)) return null;
+      const num = p.pull_request?.number ?? "";
+      title = `PR #${num} ${merged ? "merged" : action} — ${repo}`;
+      body = [p.pull_request?.title, actor && `by ${actor}`].filter(Boolean).join(" — ").slice(0, 220);
+      url = `${base}/pull/${num}`;
+      break;
+    }
+    case "ReleaseEvent": {
+      if (String(p.action || "") !== "published") return null;
+      const tag = p.release?.tag_name || "";
+      title = `🚀 ${tag || "Release"} published — ${repo}`;
+      body = [p.release?.name, actor && `by ${actor}`].filter(Boolean).join(" — ").slice(0, 220);
+      url = tag ? `${base}/releases/tag/${tag}` : `${base}/releases`;
+      priority = "high";
+      break;
+    }
+    case "WatchEvent":
+      if (String(p.action || "") !== "started") return null;
+      title = `⭐ ${actor} starred ${repo}`;
+      priority = "low";
+      break;
+    case "ForkEvent":
+      title = `🍴 ${actor} forked ${repo}`;
+      body = p.forkee?.full_name || "";
+      priority = "low";
+      break;
+    default:
+      return null; // CreateEvent, DeleteEvent, comments… stay in the inbox feed
+  }
+  return { ext_id: `github-event:${id}`, title, body, url, priority };
+}
+
 async function pollGitHub(): Promise<PollResult> {
   if (!githubConfigured()) return { ok: false, signals: [], error: "not_connected" };
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 20000);
-  let res: Response;
+  let items: any[];
   try {
-    res = await fetch(`${GITHUB_API}/notifications?per_page=20`, {
-      headers: {
-        Authorization: `Bearer ${githubToken()}`,
-        Accept: "application/vnd.github+json",
-        "User-Agent": "switchboard/1.0",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      signal: ctrl.signal,
-    });
-  } catch {
-    clearTimeout(t);
-    return { ok: false, signals: [], error: "GitHub request failed" };
-  } finally {
-    clearTimeout(t);
+    items = await ghGet("/notifications?per_page=20");
+  } catch (e: any) {
+    if (e?.status === 401 || e?.status === 403)
+      return { ok: false, signals: [], error: "not_connected" };
+    const msg = e?.name === "AbortError" ? "GitHub request timed out" : String(e?.message || e);
+    return { ok: false, signals: [], error: msg.slice(0, 200) };
   }
-  if (res.status === 401 || res.status === 403) return { ok: false, signals: [], error: "not_connected" };
-  if (!res.ok) return { ok: false, signals: [], error: `GitHub HTTP ${res.status}` };
-  const items: any[] = await res.json().catch(() => []);
   const signals: SignalInput[] = [];
   for (const n of (Array.isArray(items) ? items : []).slice(0, 20)) {
     const id = String(n.id || "");
@@ -506,6 +584,25 @@ async function pollGitHub(): Promise<PollResult> {
       priority: GITHUB_HIGH_REASON.test(String(n.reason || "")) ? "high" : "normal",
     });
   }
+  // Repo activity: the notification inbox never shows pushes, issues, PRs or
+  // releases, so also watch the user's most recently pushed repos (cap 10).
+  // Best-effort — a failure here must not flip the channel to ERROR.
+  try {
+    const repos = await ghGet("/user/repos?per_page=100&sort=pushed&direction=desc");
+    const names = (Array.isArray(repos) ? repos : [])
+      .map((r) => r?.full_name).filter(Boolean).slice(0, 10);
+    const settled = await Promise.allSettled(
+      names.map((full) => ghGet(`/repos/${full}/events?per_page=10`)));
+    for (const r of settled) {
+      if (r.status !== "fulfilled") continue;
+      for (const ev of (Array.isArray(r.value) ? r.value : []).slice(0, 10)) {
+        const s = repoEventSignal(ev);
+        if (s) signals.push(s);
+        if (signals.length >= 40) break;
+      }
+      if (signals.length >= 40) break;
+    }
+  } catch { /* best effort */ }
   return { ok: true, signals };
 }
 
