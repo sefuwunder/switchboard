@@ -22,6 +22,7 @@ export interface Signal {
   body: string;
   url: string;
   priority: string;
+  digest_only: number;
   detected_at: number;
   processed: number;
 }
@@ -77,6 +78,7 @@ export function openDb(path: string): Database {
       ext_id TEXT NOT NULL,
       title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '',
       priority TEXT NOT NULL DEFAULT 'normal',
+      digest_only INTEGER NOT NULL DEFAULT 0,
       detected_at INTEGER NOT NULL,
       processed INTEGER NOT NULL DEFAULT 0,
       UNIQUE(channel_id, ext_id)
@@ -115,6 +117,12 @@ export function openDb(path: string): Database {
     .map((c) => c.name);
   if (!cols.includes("starred")) {
     db.exec(`ALTER TABLE notifications ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`);
+  }
+  // Migration: digest_only column for signals (older databases predate it).
+  const sigCols = (db.query(`PRAGMA table_info(signals)`).all() as { name: string }[])
+    .map((c) => c.name);
+  if (!sigCols.includes("digest_only")) {
+    db.exec(`ALTER TABLE signals ADD COLUMN digest_only INTEGER NOT NULL DEFAULT 0`);
   }
   return db;
 }
@@ -188,15 +196,16 @@ export function insertSignal(
   title: string,
   body: string,
   url: string,
-  priority: string
+  priority: string,
+  digestOnly = false
 ): number | null {
   const row = db
     .prepare(
       `INSERT OR IGNORE INTO signals
-       (channel_id, ext_id, title, body, url, priority, detected_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`
+       (channel_id, ext_id, title, body, url, priority, digest_only, detected_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     )
-    .get(channel_id, ext_id, title, body || "", url || "", priority, Date.now()) as { id: number } | null;
+    .get(channel_id, ext_id, title, body || "", url || "", priority, digestOnly ? 1 : 0, Date.now()) as { id: number } | null;
   return row ? row.id : null;
 }
 

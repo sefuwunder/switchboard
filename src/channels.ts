@@ -12,6 +12,8 @@ export interface SignalInput {
   body: string;
   url: string;
   priority: "low" | "normal" | "high" | "urgent";
+  /** When true, the signal only ever goes to the digest, never instant. */
+  digestOnly?: boolean;
 }
 
 export interface PollResult {
@@ -97,8 +99,10 @@ async function pollCalendar({ db }: ChannelCtx): Promise<PollResult> {
 }
 
 // ---------------------------------------------------------------------------
-// ClickUp: nag mode — every outstanding task re-notifies once a day until
-// it's marked done (ext_id is day-bucketed so the dedupe naturally expires).
+// ClickUp: tiered nag mode. Re-notify cadence follows the due date
+// (calendar days): due today/overdue -> hourly, due tomorrow -> every
+// 12h, due in 2-3 days -> daily, due 4+ days out -> digest only.
+// Tasks with no due date nag daily. Done tasks never nag.
 // ---------------------------------------------------------------------------
 
 const CLICKUP_LIST = process.env.CLICKUP_LIST_ID || "901418249044";
@@ -153,8 +157,17 @@ async function pollClickUp(): Promise<PollResult> {
     return { ok: false, signals: [], error: msg.slice(0, 200) };
   }
   const now = Date.now();
-  const d = new Date(now);
-  const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const dayStr = (ms: number) => {
+    const d = new Date(ms);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+  const startOfDay = (ms: number) => {
+    const d = new Date(ms);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  };
+  const today = dayStr(now);
   const signals: SignalInput[] = [];
   for (const t of raw) {
     const status = String((t.status && t.status.status) || t.status || "");
@@ -168,17 +181,28 @@ async function pollClickUp(): Promise<PollResult> {
     }
     let priority: SignalInput["priority"] = "low";
     let when = "no due date";
+    // Nag bucket: a finer-grained ext_id re-notifies more often.
+    let bucket = today;
+    let digestOnly = false;
     if (dueMs) {
-      const days = Math.ceil((dueMs - now) / 86400000);
+      const days = Math.round((startOfDay(dueMs) - startOfDay(now)) / 86400000);
       when = days < 0 ? `overdue by ${-days}d` : days === 0 ? "due today" : `due in ${days}d`;
       priority = days < 0 ? "high" : days <= 2 ? "normal" : "low";
+      if (days <= 0) {
+        bucket = `${today}-${pad(new Date(now).getHours())}`; // hourly
+      } else if (days === 1) {
+        bucket = `${today}-${new Date(now).getHours() < 12 ? "am" : "pm"}`; // every 12h
+      } else if (days >= 4) {
+        digestOnly = true; // far out: digest only, never instant
+      }
     }
     signals.push({
-      ext_id: `clickup:${id}:${day}`, // nag: fresh key each day until done
+      ext_id: `clickup:${id}:${bucket}`,
       title: t.name || "(untitled task)",
       body: `${status}${when ? ` · ${when}` : ""}`.slice(0, 220),
       url: `https://app.clickup.com/t/${id}`,
       priority,
+      digestOnly,
     });
     if (signals.length >= 30) break;
   }

@@ -37,7 +37,7 @@ async function pollChannel(db: Database, ch: Channel, broadcast: Broadcast): Pro
     }
     let fresh = 0;
     for (const s of res.signals) {
-      if (insertSignal(db, ch.id, s.ext_id, s.title, s.body, s.url, s.priority) !== null) fresh++;
+      if (insertSignal(db, ch.id, s.ext_id, s.title, s.body, s.url, s.priority, s.digestOnly) !== null) fresh++;
     }
     updateChannel(db, ch.id, { last_poll_at: now, last_error: "", last_count: res.signals.length });
     if (fresh) broadcast({ type: "channel", channel: getChannel(db, ch.id) });
@@ -79,8 +79,8 @@ function routeSignals(db: Database, s: Record<string, string>, broadcast: Broadc
     }
     const breaksQuiet = sig.priority === "urgent" && urgentBreaks;
     // Urgent is an alert: it always goes out instantly, even in digest mode —
-    // the same way it can break quiet hours.
-    if ((ch.mode === "instant" || sig.priority === "urgent") && (!quiet || breaksQuiet)) {
+    // the same way it can break quiet hours. A digest-only signal never does.
+    if (!sig.digest_only && (ch.mode === "instant" || sig.priority === "urgent") && (!quiet || breaksQuiet)) {
       emitInstant(db, sig, broadcast);
     } else {
       enqueueDigest(db, sig.id);

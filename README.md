@@ -17,12 +17,29 @@ board stays quiet until you want to tune it.
 | Channel | Signal source | Needs |
 |---|---|---|
 | Google Calendar | Events starting in the next 36h | Secret iCal URL — see below |
-| ClickUp | Outstanding tasks on your list — nag mode: re-notifies daily until marked done | Works out of the box (skill credential or `CLICKUP_TOKEN`) |
+| ClickUp | Outstanding tasks on your list — tiered nag until marked done (see below) | Works out of the box (skill credential or `CLICKUP_TOKEN`) |
 | Anytype | Open tasks from your local Anytype app | Pair via the patch bay card (desktop app must be running) |
 | GitHub | Unread notifications (mentions, review requests, CI) + repo activity (pushes, issues, PRs, releases, stars) | `GITHUB_TOKEN` in `.env` — see below |
 
 Each channel poll is a local call with a hard timeout; a failing
 channel reports its error on its card without disturbing the others.
+
+### ClickUp nag tiers
+
+Outstanding ClickUp tasks re-notify until marked done. The cadence
+follows the due date (calendar days):
+
+| Due | Nag cadence |
+|---|---|
+| Overdue or due today | Every hour |
+| Due tomorrow | Every 12 hours |
+| Due in 2–3 days | Daily |
+| Due 4+ days out | Digest only — never an instant notification |
+| No due date | Daily |
+
+Done tasks drop out immediately. Due bands use calendar days, so a
+task due tomorrow morning counts as "due tomorrow" even if that's
+25 hours away.
 
 ## Modulation
 
