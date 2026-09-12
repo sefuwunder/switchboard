@@ -8,9 +8,15 @@ modulated reminders stream out on a live line.
 Built with [Bun](https://bun.sh) + SQLite. Zero npm dependencies.
 
 The UI is Solarized (light by default, dark via the ◐ toggle — remembered
-per browser). Each service gets its own logo on its card, and channel
-controls plus the Master section tuck under foldable subsections so the
-board stays quiet until you want to tune it.
+per browser). Panels, channel strips, and reminders are frosted glass over
+a soft background glow, with subtle motion throughout (new reminders rise
+into the feed, tabs fade, buttons lift — all off under
+`prefers-reduced-motion`). Each service gets its own logo on its card, and
+channel controls plus the Master section tuck under foldable subsections
+so the board stays quiet until you want to tune it. The header holds three
+icon buttons: theme, a 🔔 bell that enables desktop notifications, and a
+🚀 rocket that fires a test signal through the router — all with hover
+tooltips.
 
 ## Channels
 
@@ -55,10 +61,16 @@ task due tomorrow morning counts as "due tomorrow" even if that's
   button polls immediately and flushes the pending digest, so you see
   what's outstanding right away.
 - **Snooze** — per notification (30m) or per channel (15m/1h/4h).
-- **Starred** — tap ☆ on any reminder to pin it in the Starred section,
-  where it stays until unstarred. Star from the feed or the archive.
+- **Starred** — tap ☆ on any reminder to pin it in the **Starred** tab of
+  the Saved panel, where it stays until unstarred. Star from the feed or
+  the archive. The **Archive** tab next to it holds searchable history.
+- **Double-trigger filter** — if an identical notification (same kind,
+  channel, title, body) already went out within the last 10 minutes, the
+  repeat is dropped instead of sent. Intentional re-nags (hourly, daily)
+  are far apart and unaffected; reminders that differ in wording still
+  go through.
 
-Reminders arrive live over SSE; the 🔔 button enables desktop notifications.
+Reminders arrive live over SSE.
 
 ## Run it
 
@@ -83,7 +95,10 @@ no OAuth, no API keys on Google's side.
    into the **iCal feed** field. The card polls immediately.
 
 Events starting in the next 36 hours surface as reminders (high priority
-if starting within the hour), including recurring events. Keep the URL
+if starting within the hour), including recurring events. The under-an-hour
+reminder is its own alert: even if the priority fader filtered out the
+earlier heads-up, the final call still fires — so in instant mode an event
+can send two reminders (heads-up + final call). Keep the URL
 private — anyone with it can read your calendar.
 
 ## GitHub setup
