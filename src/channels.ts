@@ -86,12 +86,17 @@ async function pollCalendar({ db }: ChannelCtx): Promise<PollResult> {
   const signals: SignalInput[] = [];
   for (const occ of upcomingFromIcs(text, now - 5 * 60000, horizon)) {
     const where = occ.location ? ` @ ${occ.location}` : "";
+    const band = occ.startMs - now < 3600 * 1000 ? "high" : "normal";
     signals.push({
-      ext_id: `cal:${occ.uid}:${occ.startMs}`,
+      // The priority band is part of the signal's identity: an event that was
+      // seen (and possibly fader-dropped) hours out must re-fire as a NEW
+      // signal when it escalates under an hour away, instead of being
+      // swallowed by dedupe on the unchanged ext_id.
+      ext_id: `cal:${occ.uid}:${occ.startMs}:${band}`,
       title: occ.summary,
       body: `Starts ${relTime(occ.startMs)}${where}`.slice(0, 220),
       url: occ.url,
-      priority: occ.startMs - now < 3600 * 1000 ? "high" : "normal",
+      priority: band,
     });
     if (signals.length >= 20) break;
   }
