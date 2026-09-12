@@ -15,6 +15,32 @@ export type Broadcast = (event: Record<string, unknown>) => void;
 
 const RANK: Record<string, number> = { low: 0, normal: 1, high: 2, urgent: 3 };
 
+/**
+ * Double-trigger filter: if an identical notification (same kind, channel,
+ * title and body) already went out within the last 10 minutes, the second
+ * one is dropped. The window is deliberately short — intentional re-nags
+ * (hourly, 12-hourly, daily) are far apart, while a true double send lands
+ * seconds apart. Near-identical reminders with different text (e.g. the
+ * calendar "in 2h" heads-up vs the "in 45m" final call) are NOT identical,
+ * so both still go through.
+ */
+const DOUBLE_TRIGGER_WINDOW_MS = 10 * 60 * 1000;
+
+function isDoubleTrigger(
+  db: Database,
+  n: { kind: string; title: string; body?: string; channel_id?: string }
+): boolean {
+  const since = Date.now() - DOUBLE_TRIGGER_WINDOW_MS;
+  const dup = db
+    .query(
+      `SELECT 1 FROM notifications
+       WHERE kind = ? AND channel_id = ? AND title = ? AND body = ?
+         AND created_at >= ? LIMIT 1`
+    )
+    .get(n.kind, n.channel_id || "", n.title, n.body || "", since);
+  return !!dup;
+}
+
 function inQuietHours(s: Record<string, string>, now: Date): boolean {
   if (s.quiet_enabled !== "1") return false;
   const fmt = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -48,15 +74,16 @@ async function pollChannel(db: Database, ch: Channel, broadcast: Broadcast): Pro
 }
 
 function emitInstant(db: Database, s: Signal, broadcast: Broadcast): void {
-  const n = addNotification(db, {
+  const fields = {
     kind: "instant",
     title: s.title,
     body: s.body,
     url: s.url,
     priority: s.priority,
     channel_id: s.channel_id,
-  });
-  broadcast({ type: "notification", notification: n });
+  };
+  const n = isDoubleTrigger(db, fields) ? null : addNotification(db, fields);
+  if (n) broadcast({ type: "notification", notification: n });
 }
 
 function routeSignals(db: Database, s: Record<string, string>, broadcast: Broadcast, now: number): void {
@@ -100,7 +127,7 @@ function maybeDigest(db: Database, s: Record<string, string>, broadcast: Broadca
   const prio = top[0].priority;
   const lines = top.slice(0, 8).map((x) => `• ${x.title}`);
   if (top.length > 8) lines.push(`…and ${top.length - 8} more`);
-  const n = addNotification(db, {
+  const fields = {
     kind: "digest",
     title: `📦 Digest — ${queued.length} update${queued.length === 1 ? "" : "s"}`,
     body: lines.join("\n"),
@@ -109,9 +136,10 @@ function maybeDigest(db: Database, s: Record<string, string>, broadcast: Broadca
       signal_id: x.id, title: x.title, channel_id: x.channel_id,
       priority: x.priority, url: x.url, body: x.body,
     })),
-  });
+  };
+  const n = isDoubleTrigger(db, fields) ? null : addNotification(db, fields);
   clearDigestQueue(db);
-  broadcast({ type: "notification", notification: n });
+  if (n) broadcast({ type: "notification", notification: n });
 }
 
 function unsnooze(db: Database, broadcast: Broadcast, now: number): void {
