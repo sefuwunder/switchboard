@@ -346,7 +346,7 @@ function noteHtml(n) {
       <span class="grow"></span>
       ${n.url ? `<a class="mini-btn" href="${esc(n.url)}" target="_blank" rel="noopener">open</a>` : ""}
       ${n.status !== "dismissed" ? `
-        <button class="mini-btn act-star ${n.starred ? "active" : ""}" data-id="${n.id}" title="${n.starred ? "Unstar" : "Star"}">${n.starred ? "&#9733;" : "&#9734;"}</button>
+        <button class="mini-btn act-star ${n.starred ? "active" : ""}" data-id="${n.id}" data-tip="${n.starred ? "Unstar" : "Star"}">${n.starred ? "&#9733;" : "&#9734;"}</button>
         <button class="mini-btn act-snooze" data-id="${n.id}">snooze 30m</button>
         <button class="mini-btn act-dismiss" data-id="${n.id}">dismiss</button>` : ""}
     </div>`;
@@ -431,7 +431,7 @@ function archiveRow(n) {
         ${n.status === "snoozed" ? "<span>snoozed</span>" : ""}
         <span class="grow"></span>
         ${n.url ? `<a class="mini-btn" href="${esc(n.url)}" target="_blank" rel="noopener">open</a>` : ""}
-        <button class="mini-btn act-star ${n.starred ? "active" : ""}" data-id="${n.id}" title="${n.starred ? "Unstar" : "Star"}">${n.starred ? "&#9733;" : "&#9734;"}</button>
+        <button class="mini-btn act-star ${n.starred ? "active" : ""}" data-id="${n.id}" data-tip="${n.starred ? "Unstar" : "Star"}">${n.starred ? "&#9733;" : "&#9734;"}</button>
       </div>
     </div>`;
 }
@@ -439,7 +439,7 @@ function archiveRow(n) {
 function renderArchive() {
   const box = $("archive");
   const items = archive.items;
-  $("archive-count").textContent = archive.total != null ? `${archive.total} total` : "";
+  $("archive-count").textContent = archive.total != null ? String(archive.total) : "";
   $("archive-more").hidden = !(archive.total != null && archive.items.length < archive.total);
   if (!items.length) {
     box.innerHTML = `<p class="muted">No reminders in the archive${archive.q ? " matching that search" : " yet"}.</p>`;
@@ -480,14 +480,14 @@ function starredRow(n) {
       ${n.status === "snoozed" ? "<span>snoozed</span>" : ""}
       <span class="grow"></span>
       ${n.url ? `<a class="mini-btn" href="${esc(n.url)}" target="_blank" rel="noopener">open</a>` : ""}
-      <button class="mini-btn act-unstar active" data-id="${n.id}" title="Unstar">&#9733; unstar</button>
+      <button class="mini-btn act-unstar active" data-id="${n.id}" data-tip="Unstar">&#9733; unstar</button>
     </div>`;
 }
 
 function renderStarred() {
   const box = $("starred");
   const items = state.starred;
-  $("starred-count").textContent = items.length ? `${items.length} pinned` : "";
+  $("starred-count").textContent = items.length ? String(items.length) : "";
   if (!items.length) {
     box.innerHTML = `<p class="muted">Nothing starred yet &mdash; tap &star; on any reminder to pin it here.</p>`;
     return;
@@ -567,11 +567,17 @@ $("master-toggle").addEventListener("click", () => {
   setOpen(sec, !open);
 });
 
-$("archive-toggle").addEventListener("click", () => {
-  const sec = $("archive-panel");
-  const open = sec.getAttribute("data-open") === "1";
-  setOpen(sec, !open);
-});
+// ---------- saved tabs (Starred / Archive) ----------
+document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach((o) => {
+    const on = o === t;
+    o.classList.toggle("active", on);
+    o.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.querySelectorAll(".tabpane").forEach((p) => {
+    p.hidden = p.id !== "tab-" + t.dataset.tab;
+  });
+}));
 
 $("theme-btn").addEventListener("click", () => {
   const dark = document.documentElement.dataset.theme !== "dark";
@@ -588,9 +594,17 @@ $("quiet-end").addEventListener("change", (e) => patchSettings({ quiet_end: e.ta
 $("digest-minutes").addEventListener("change", (e) => patchSettings({ digest_minutes: e.target.value }));
 $("urgent-breaks").addEventListener("change", (e) => patchSettings({ urgent_breaks_quiet: e.target.checked }));
 $("notify-btn").addEventListener("click", async () => {
-  if (!("Notification" in window)) { $("notify-btn").textContent = "not supported"; return; }
+  const btn = $("notify-btn");
+  if (!("Notification" in window)) {
+    btn.dataset.tip = "Desktop notifications not supported here";
+    btn.setAttribute("aria-label", btn.dataset.tip);
+    return;
+  }
   const p = await Notification.requestPermission();
-  $("notify-btn").textContent = p === "granted" ? "Notifications on" : "Notifications blocked";
+  const on = p === "granted";
+  btn.classList.toggle("on", on);
+  btn.dataset.tip = on ? "Desktop notifications on" : "Desktop notifications blocked — click to retry";
+  btn.setAttribute("aria-label", btn.dataset.tip);
 });
 $("test-btn").addEventListener("click", async () => {
   await fetch("/api/test", {

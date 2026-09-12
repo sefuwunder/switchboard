@@ -43,7 +43,12 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  background:
+    radial-gradient(640px 420px at 10% -6%, color-mix(in srgb, var(--blue) 8%, transparent), transparent 70%),
+    radial-gradient(720px 480px at 96% 4%, color-mix(in srgb, var(--cyan) 7%, transparent), transparent 70%),
+    radial-gradient(900px 600px at 50% 115%, color-mix(in srgb, var(--violet) 6%, transparent), transparent 70%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -70,7 +75,10 @@ body {
   font-size: 16px; cursor: pointer; display: grid; place-items: center;
   transition: border-color 0.15s ease, transform 0.15s ease;
 }
-.icon-btn:hover { border-color: var(--muted); transform: scale(1.05); }
+.icon-btn:hover { border-color: var(--muted); transform: translateY(-1px) scale(1.06); }
+.icon-btn:active { transform: scale(0.96); }
+.icon-btn svg { width: 18px; height: 18px; }
+.icon-btn.on { color: var(--green); border-color: color-mix(in srgb, var(--green) 55%, transparent); }
 
 .quiet-btn {
   background: var(--panel); border: 1px solid var(--border); color: var(--text);
@@ -80,15 +88,39 @@ body {
 .quiet-btn:hover { border-color: var(--muted); }
 .quiet-btn:disabled { opacity: 0.45; cursor: default; }
 
+/* hover tooltips (custom, via data-tip) */
+[data-tip] { position: relative; }
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute; left: 50%; bottom: calc(100% + 9px);
+  transform: translateX(-50%) translateY(3px);
+  background: var(--strong); color: var(--bg);
+  font-size: 11.5px; font-weight: 500; letter-spacing: 0.01em;
+  padding: 5px 10px; border-radius: 8px; white-space: nowrap;
+  pointer-events: none; opacity: 0; z-index: 60;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition-delay: 0s;
+}
+[data-tip]:hover::after, [data-tip]:focus-visible::after {
+  opacity: 1; transform: translateX(-50%) translateY(0);
+  transition-delay: 0.3s;
+}
+
 main { max-width: 860px; margin: 0 auto; display: grid; gap: 14px; }
 
 .panel {
-  background: var(--panel);
-  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 66%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+  backdrop-filter: blur(16px) saturate(1.25);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: var(--radius);
   padding: 18px 20px;
-  box-shadow: var(--shadow);
-  transition: background 0.25s ease, border-color 0.25s ease;
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: background 0.25s ease, border-color 0.25s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+[data-theme="dark"] .panel {
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 .panel-head {
   display: flex; align-items: center; gap: 10px; margin-bottom: 4px;
@@ -168,9 +200,10 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--green); 
 /* patch bay — one column of channel strips */
 .channels { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .channel {
-  background: var(--panel-2);
+  background: color-mix(in srgb, var(--panel-2) 72%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   border: 1px solid var(--border); border-radius: 14px;
-  transition: background 0.25s ease, border-color 0.25s ease;
 }
 .channel.patched-out { opacity: 0.55; }
 
@@ -237,11 +270,55 @@ input[type="range"] { width: 100%; accent-color: var(--blue); }
 .pair-box .pair-code { width: 4.5em; text-align: center; letter-spacing: 0.2em; }
 .pair-box .pair-key { flex: 1; min-width: 170px; }
 
+/* tabs (Saved: Starred / Archive) */
+.tabs {
+  display: flex; gap: 2px; margin-left: auto;
+  background: color-mix(in srgb, var(--chip) 75%, transparent);
+  border-radius: 11px; padding: 3px;
+}
+.tab {
+  border: none; background: transparent; color: var(--muted);
+  font: inherit; font-size: 12.5px; font-weight: 600;
+  padding: 6px 13px; border-radius: 8px; cursor: pointer;
+  display: flex; align-items: center; gap: 7px;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.tab:hover { color: var(--text); transform: translateY(-1px); }
+.tab.active {
+  background: var(--thumb); color: var(--strong);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+.tab-count {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+  border-radius: 999px; padding: 1px 7px; min-width: 20px; text-align: center;
+}
+.tab-count:empty { display: none; }
+.tab.active .tab-count { color: var(--blue); }
+.tabpane { animation: pane-in 0.25s ease both; }
+@keyframes pane-in { from { opacity: 0; transform: translateY(5px); } }
+
+/* subtle motion */
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+.feed .note { animation: rise 0.38s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.mini-btn { transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease; }
+.mini-btn:hover { transform: translateY(-1px); }
+.mini-btn:active { transform: translateY(0); }
+.channel { transition: background 0.25s ease, border-color 0.25s ease, transform 0.2s ease, box-shadow 0.2s ease; }
+.channel:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(88, 110, 117, 0.12); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
 /* feed */
 .feed { display: grid; gap: 10px; max-height: 520px; overflow-y: auto; }
 .note {
   border: 1px solid var(--border); border-left: 3px solid var(--muted);
-  border-radius: 12px; padding: 11px 14px; background: var(--panel-2);
+  border-radius: 12px; padding: 11px 14px;
+  background: color-mix(in srgb, var(--panel-2) 72%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   display: grid; gap: 4px;
 }
 .note.urgent { border-left-color: var(--red); }

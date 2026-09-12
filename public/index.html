@@ -15,9 +15,9 @@
     <p class="dateline">Patch your services in. Modulate how they reach you.</p>
   </div>
   <div class="top-actions">
-    <button id="theme-btn" class="icon-btn" title="Toggle light / dark">&#9681;</button>
-    <button id="notify-btn" class="quiet-btn" title="Allow desktop notifications">Notify me</button>
-    <button id="test-btn" class="quiet-btn" title="Fire a test signal through the router">Test</button>
+    <button id="theme-btn" class="icon-btn" data-tip="Toggle light / dark" aria-label="Toggle light / dark">&#9681;</button>
+    <button id="notify-btn" class="icon-btn" data-tip="Allow desktop notifications" aria-label="Allow desktop notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 15 18 9z"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/></svg></button>
+    <button id="test-btn" class="icon-btn" data-tip="Fire a test signal through the router" aria-label="Fire a test signal through the router"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.8c2.8 2 4 5.6 3.4 9.2L12 14.2l-3.4-2.2C8 8.4 9.2 4.8 12 2.8z"/><circle cx="12" cy="8" r="1.3"/><path d="M8.6 11.8 5.5 15.5l3.4-.8M15.4 11.8l3.1 3.7-3.4-.8"/><path d="M12 14.2c-1.2 1.6-1.2 3.4 0 5 1.2-1.6 1.2-3.4 0-5z"/></svg></button>
   </div>
 </header>
 
@@ -31,7 +31,7 @@
       </button>
       <span class="dnd-wrap">
         <span class="dnd-label" aria-hidden="true">DND</span>
-        <button id="dnd-toggle" class="switch" role="switch" aria-checked="false" aria-label="Do not disturb" title="Do not disturb — hold all notifications until switched off"><span class="knob"></span></button>
+        <button id="dnd-toggle" class="switch" role="switch" aria-checked="false" aria-label="Do not disturb" data-tip="Do not disturb — hold all notifications until switched off"><span class="knob"></span></button>
       </span>
     </div>
     <div class="foldable"><div class="foldable-inner">
@@ -70,18 +70,17 @@
     <div id="feed" class="feed"><p class="muted">Quiet on the line. Signals will appear here as the board routes them.</p></div>
   </section>
 
-  <section class="panel" aria-label="Starred">
-    <div class="panel-head"><svg class="sec-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.2 14.3 9l5.2.7-3.8 3.6 1 5.1-4.7-2.6-4.7 2.6 1-5.1L4.5 9.7 9.7 9z"/></svg><h2>Starred</h2><span class="panel-sub" id="starred-count"></span></div>
-    <div id="starred" class="archive"><p class="muted">Nothing starred yet &mdash; tap &star; on any reminder to pin it here.</p></div>
-  </section>
-
-  <section class="panel" id="archive-panel" data-open="0" aria-label="Archive">
-    <button class="fold-head" id="archive-toggle" aria-expanded="false">
-      <svg class="sec-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4.5h16v4H4z"/><path d="M5.5 8.5V19h13V8.5"/><path d="M10 12.5h4"/></svg>
-      <h2>Archive</h2><span class="panel-sub" id="archive-count"></span>
-      <span class="chev" aria-hidden="true">&#8250;</span>
-    </button>
-    <div class="foldable"><div class="foldable-inner">
+  <section class="panel" aria-label="Saved reminders">
+    <div class="panel-head"><svg class="sec-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4.5h16v4H4z"/><path d="M5.5 8.5V19h13V8.5"/><path d="M10 12.5h4"/></svg><h2>Saved</h2>
+      <div class="tabs" role="tablist" aria-label="Saved reminders">
+        <button class="tab active" data-tab="starred" role="tab" aria-selected="true" aria-controls="tab-starred" id="tabbtn-starred">Starred<span class="tab-count" id="starred-count"></span></button>
+        <button class="tab" data-tab="archive" role="tab" aria-selected="false" aria-controls="tab-archive" id="tabbtn-archive">Archive<span class="tab-count" id="archive-count"></span></button>
+      </div>
+    </div>
+    <div id="tab-starred" class="tabpane" role="tabpanel" aria-labelledby="tabbtn-starred">
+      <div id="starred" class="archive"><p class="muted">Nothing starred yet &mdash; tap &star; on any reminder to pin it here.</p></div>
+    </div>
+    <div id="tab-archive" class="tabpane" role="tabpanel" aria-labelledby="tabbtn-archive" hidden>
       <div class="ch-row" style="margin-bottom:10px">
         <input id="archive-q" class="mini-btn" style="flex:1;min-width:0" placeholder="Search past reminders&hellip;" aria-label="Search archive">
       </div>
@@ -89,7 +88,7 @@
       <div class="ch-row" style="margin-top:10px;justify-content:center">
         <button id="archive-more" class="mini-btn" hidden>Show more</button>
       </div>
-    </div></div>
+    </div>
   </section>
 </main>
 
