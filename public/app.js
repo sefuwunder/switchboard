@@ -420,6 +420,9 @@ function noteHtml(n) {
 function renderFeed() {
   const feed = $("feed");
   const live = state.feed.filter((n) => n.status !== "dismissed");
+  const ca = $("clear-all");
+  if (ca.dataset.armed === "1") disarmClear();
+  ca.hidden = !live.length;
   if (!live.length) {
     feed.innerHTML = `<p class="muted">Quiet on the line. Signals will appear here as the board routes them.</p>`;
     return;
@@ -452,6 +455,21 @@ async function noteAction(id, action) {
   if (j >= 0) state.starred[j] = d.notification;
   renderFeed();
   renderStarred();
+}
+
+// ---------- clear all (dismiss every live notification at once) ----------
+// Two-step arm: first click arms ("confirm clear"), second click within 5s fires.
+let clearArmedAt = 0;
+function disarmClear() {
+  const b = $("clear-all");
+  b.dataset.armed = "";
+  b.textContent = "clear all";
+}
+async function clearAll() {
+  await fetch("/api/notifications/clear", { method: "POST" });
+  state.feed = [];
+  disarmClear();
+  renderFeed();
 }
 
 async function starAction(id, starred) {
@@ -679,17 +697,32 @@ $("master-toggle").addEventListener("click", () => {
   setOpen(sec, !open);
 });
 
-// ---------- saved tabs (Starred / Archive) ----------
-document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
-  document.querySelectorAll(".tab").forEach((o) => {
-    const on = o === t;
-    o.classList.toggle("active", on);
-    o.setAttribute("aria-selected", on ? "true" : "false");
-  });
-  document.querySelectorAll(".tabpane").forEach((p) => {
-    p.hidden = p.id !== "tab-" + t.dataset.tab;
-  });
-}));
+// ---------- tab sets (Saved: Starred / Archive; Patch bay: Patch bay / Insights) ----------
+document.querySelectorAll('[role="tablist"]').forEach((list) => {
+  const scope = list.closest("section");
+  list.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
+    list.querySelectorAll(".tab").forEach((o) => {
+      const on = o === t;
+      o.classList.toggle("active", on);
+      o.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    scope.querySelectorAll(".tabpane").forEach((p) => {
+      p.hidden = p.id !== "tab-" + t.dataset.tab;
+    });
+  }));
+});
+
+$("clear-all").addEventListener("click", () => {
+  const b = $("clear-all");
+  if (b.dataset.armed === "1" && Date.now() - clearArmedAt < 5000) {
+    clearAll(); // armed, then re-clicked in time: confirmed
+  } else {
+    b.dataset.armed = "1";
+    b.textContent = "confirm clear";
+    clearArmedAt = Date.now();
+    setTimeout(() => { if (b.dataset.armed === "1") disarmClear(); }, 5000);
+  }
+});
 
 $("theme-btn").addEventListener("click", () => {
   const dark = document.documentElement.dataset.theme !== "dark";

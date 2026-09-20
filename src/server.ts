@@ -6,7 +6,8 @@
 import { Database } from "bun:sqlite";
 import {
   openDb, getChannels, getChannel, updateChannel, getSettings, getPublicSettings, setSetting,
-  recentNotifications, searchNotifications, getNotification, updateNotification, getInsights,
+  recentNotifications, searchNotifications, getNotification, updateNotification, dismissAllNotifications,
+  getInsights,
 } from "./db";
 import { CHANNEL_DEFS } from "./channels";
 import { anytypeChallenge, anytypePair, anytypeProbe, githubConfigured } from "./channels";
@@ -264,6 +265,11 @@ async function handle(req: Request): Promise<Response> {
     if (!q && !offset && !starredOnly) return json({ notifications: recentNotifications(db, limit), total: null });
     const { notifications, total } = searchNotifications(db, q, limit, offset, starredOnly);
     return json({ notifications, total });
+  }
+
+  if (p === "/api/notifications/clear" && m === "POST") {
+    const cleared = dismissAllNotifications(db);
+    return json({ cleared });
   }
 
   mm = p.match(/^\/api\/notifications\/(\d+)\/(dismiss|snooze|star)$/);

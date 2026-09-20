@@ -94,6 +94,7 @@ const canned: Record<string, any> = {
   },
   "/api/notifications?q=&limit=50&offset=0": { notifications: [], total: 0 },
   "/api/notifications?starred=1&limit=100": { notifications: [] },
+  "/api/notifications/clear": { cleared: 1 },
   "/api/insights": {
     insights: {
       window_days: 7,
@@ -131,7 +132,9 @@ async function boot() {
     for (const [k, v] of Object.entries(saved)) (globalThis as any)[k] = v;
   };
   (globalThis as any).document = documentStub;
+  (globalThis as any).__sbFetches = [];
   (globalThis as any).fetch = async (url: string, _init?: any) => {
+    (globalThis as any).__sbFetches.push(String(url));
     const data = canned[String(url)];
     if (!data) throw new Error(`unexpected fetch: ${url}`);
     return { ok: true, json: async () => data };
@@ -203,4 +206,58 @@ test("insights panel renders channel bars, outcomes, busiest hours, senders", as
   expect(html).toContain("Noisiest senders");
   expect(html).toContain("shy@example.com");
   expect(html).toContain("10 signals");
+});
+
+test("insights tab lives inside the patch bay; no standalone insights section", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  expect(html).not.toContain('aria-label="Insights"');
+  expect(html).toContain('aria-label="Patch bay views"');
+  expect(html).toContain('data-tab="services"');
+  expect(html).toContain('data-tab="insights"');
+  expect(html).toContain('id="tab-insights"');
+  expect(html).toContain('id="insights"');
+  expect(html).toContain('id="insights-refresh"');
+});
+
+test("line out head carries the clear-all button", () => {
+  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  expect(html).toContain('id="clear-all"');
+  expect(html).toContain('aria-label="Clear all notifications"');
+});
+
+test("clear-all: visible on a live feed, first click only arms", async () => {
+  const ids = await boot();
+  const btn = ids["clear-all"];
+  expect(ids["feed"].innerHTML).toContain("Call Shy");
+  expect(btn.hidden).toBe(false);
+  for (const f of btn._listeners["click"] || []) await f();
+  expect((globalThis as any).__sbFetches).not.toContain("/api/notifications/clear");
+  expect(btn.dataset.armed).toBe("1");
+  expect(btn.textContent).toContain("confirm");
+  expect(ids["feed"].innerHTML).toContain("Call Shy"); // nothing cleared yet
+});
+
+test("clear-all: second click within the window clears the feed to its empty state", async () => {
+  const ids = await boot();
+  const btn = ids["clear-all"];
+  for (const f of btn._listeners["click"] || []) await f(); // arm
+  for (const f of btn._listeners["click"] || []) await f(); // confirm
+  await new Promise((r) => setTimeout(r, 150));
+  expect((globalThis as any).__sbFetches).toContain("/api/notifications/clear");
+  expect(ids["feed"].innerHTML).toContain("Quiet on the line");
+  expect(btn.hidden).toBe(true);
+  expect(btn.textContent).toBe("clear all"); // disarmed again
+});
+
+test("clear-all: after the arm lapses, a click re-arms instead of clearing", async () => {
+  const ids = await boot();
+  const btn = ids["clear-all"];
+  for (const f of btn._listeners["click"] || []) await f(); // arm
+  // simulate the 5s expiry firing (disarmClear):
+  btn.dataset.armed = "";
+  btn.textContent = "clear all";
+  for (const f of btn._listeners["click"] || []) await f(); // click again: re-arms
+  await new Promise((r) => setTimeout(r, 150));
+  expect((globalThis as any).__sbFetches).not.toContain("/api/notifications/clear");
+  expect(ids["feed"].innerHTML).toContain("Call Shy");
 });

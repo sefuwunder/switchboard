@@ -299,6 +299,13 @@ export function getNotification(db: Database, id: number): Notification | null {
   return db.query(`SELECT * FROM notifications WHERE id = ?`).get(id) as Notification | null;
 }
 
+/** Dismiss every live notification at once ("Clear all" on the line-out feed).
+ *  Dismissed ones stay dismissed; starred ones keep their star in Saved. */
+export function dismissAllNotifications(db: Database): number {
+  const r = db.prepare(`UPDATE notifications SET status = 'dismissed' WHERE status != 'dismissed'`).run();
+  return Number((r as any).changes ?? 0);
+}
+
 export function updateNotification(db: Database, id: number, patch: { status?: string; snooze_until?: number; starred?: number }): void {
   const sets: string[] = [];
   const vals: unknown[] = [];

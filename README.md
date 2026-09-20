@@ -169,7 +169,7 @@ card (paste the URL, it polls immediately). Ascent must be running.
 
 ## Insights
 
-The Insights panel at the bottom of the board aggregates the last 7 days
+The **Patch bay | Insights** tab inside the patch bay aggregates the last 7 days
 of signals — computed read-only from the existing tables, no extra
 storage. `GET /api/insights` returns the same JSON.
 
@@ -192,5 +192,6 @@ storage. `GET /api/insights` returns the same JSON.
 - `GET /api/insights` — 7-day aggregates: total signals, per-channel counts, open/snoozed/handled outcomes, busiest local hours, top senders
 - `GET /api/notifications` (`limit`, `offset`, `q` — searchable archive, newest first; `starred=1` — only pinned reminders; `total` included when searching, paging, or filtering starred)
 - `POST /api/notifications/:id/dismiss|snooze|star` (`star` toggles unless given `{ "starred": true|false }`)
+- `POST /api/notifications/clear` — dismisses every live notification at once ("Clear all" in the Line out head; the button asks for a second tap to confirm)
 - `POST /api/test` — fire a test signal through the router
 - `GET /api/events` — SSE stream of board events

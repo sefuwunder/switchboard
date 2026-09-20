@@ -71,12 +71,27 @@
   </section>
 
   <section class="panel" aria-label="Channel patch bay">
-    <div class="panel-head"><svg class="sec-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="2.4"/><circle cx="17" cy="17" r="2.4"/><path d="M7 9.4V14a3 3 0 0 0 3 3h4.6"/></svg><h2>Patch bay</h2><span class="panel-sub">services</span></div>
-    <div id="channels" class="channels"><p class="muted">Patching in&hellip;</p></div>
+    <div class="panel-head"><svg class="sec-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="2.4"/><circle cx="17" cy="17" r="2.4"/><path d="M7 9.4V14a3 3 0 0 0 3 3h4.6"/></svg><h2>Patch bay</h2>
+      <div class="tabs" role="tablist" aria-label="Patch bay views">
+        <button class="tab active" data-tab="services" role="tab" aria-selected="true" aria-controls="tab-services" id="tabbtn-services">Patch bay</button>
+        <button class="tab" data-tab="insights" role="tab" aria-selected="false" aria-controls="tab-insights" id="tabbtn-insights">Insights</button>
+      </div>
+    </div>
+    <div id="tab-services" class="tabpane" role="tabpanel" aria-labelledby="tabbtn-services">
+      <div id="channels" class="channels"><p class="muted">Patching in&hellip;</p></div>
+    </div>
+    <div id="tab-insights" class="tabpane" role="tabpanel" aria-labelledby="tabbtn-insights" hidden>
+      <div class="ch-row" style="margin-bottom:10px">
+        <span class="muted" style="font-size:12px">last 7 days</span>
+        <span class="grow"></span>
+        <button id="insights-refresh" class="mini-btn">refresh</button>
+      </div>
+      <div id="insights"><p class="muted">Loading&hellip;</p></div>
+    </div>
   </section>
 
   <section class="panel" aria-label="Reminder line out">
-    <div class="panel-head"><svg class="sec-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h3.5l2-6.5 3 13 2.5-9 1.5 2.5H21"/></svg><h2>Line out</h2><span class="panel-sub">modulated reminders</span></div>
+    <div class="panel-head"><svg class="sec-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h3.5l2-6.5 3 13 2.5-9 1.5 2.5H21"/></svg><h2>Line out</h2><span class="panel-sub">modulated reminders</span><span style="flex:1"></span><button id="clear-all" class="mini-btn" aria-label="Clear all notifications" hidden>clear all</button></div>
     <div id="feed" class="feed"><p class="muted">Quiet on the line. Signals will appear here as the board routes them.</p></div>
   </section>
 
@@ -101,10 +116,6 @@
     </div>
   </section>
 
-  <section class="panel" aria-label="Insights">
-    <div class="panel-head"><svg class="sec-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg><h2>Insights</h2><span class="panel-sub">last 7 days</span><span style="flex:1"></span><button id="insights-refresh" class="mini-btn">refresh</button></div>
-    <div id="insights"><p class="muted">Loading&hellip;</p></div>
-  </section>
 </main>
 
 <footer class="foot"><span>Switchboard &middot; Bun + SQLite &middot; polls locally, nothing leaves your machine except the services you patch in.</span></footer>
