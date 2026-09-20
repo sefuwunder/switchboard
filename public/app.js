@@ -463,7 +463,9 @@ let clearArmedAt = 0;
 function disarmClear() {
   const b = $("clear-all");
   b.dataset.armed = "";
-  b.textContent = "clear all";
+  b.classList.remove("active");
+  b.title = "Clear all notifications";
+  b.setAttribute("aria-label", "Clear all notifications");
 }
 async function clearAll() {
   await fetch("/api/notifications/clear", { method: "POST" });
@@ -718,7 +720,9 @@ $("clear-all").addEventListener("click", () => {
     clearAll(); // armed, then re-clicked in time: confirmed
   } else {
     b.dataset.armed = "1";
-    b.textContent = "confirm clear";
+    b.classList.add("active");
+    b.title = "Click again to confirm";
+    b.setAttribute("aria-label", "Confirm: clear all notifications");
     clearArmedAt = Date.now();
     setTimeout(() => { if (b.dataset.armed === "1") disarmClear(); }, 5000);
   }

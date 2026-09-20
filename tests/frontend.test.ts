@@ -219,10 +219,13 @@ test("insights tab lives inside the patch bay; no standalone insights section", 
   expect(html).toContain('id="insights-refresh"');
 });
 
-test("line out head carries the clear-all button", () => {
+test("line out head carries the clear-all broom button", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
   expect(html).toContain('id="clear-all"');
   expect(html).toContain('aria-label="Clear all notifications"');
+  expect(html).toContain('title="Clear all notifications"');
+  expect(html).toContain('class="mini-btn icon-btn"');
+  expect(html).toContain('<svg viewBox="0 0 24 24"');
 });
 
 test("clear-all: visible on a live feed, first click only arms", async () => {
@@ -233,7 +236,9 @@ test("clear-all: visible on a live feed, first click only arms", async () => {
   for (const f of btn._listeners["click"] || []) await f();
   expect((globalThis as any).__sbFetches).not.toContain("/api/notifications/clear");
   expect(btn.dataset.armed).toBe("1");
-  expect(btn.textContent).toContain("confirm");
+  expect(btn.classList.contains("active")).toBe(true);
+  expect(btn.title).toBe("Click again to confirm");
+  expect(btn.getAttribute("aria-label")).toBe("Confirm: clear all notifications");
   expect(ids["feed"].innerHTML).toContain("Call Shy"); // nothing cleared yet
 });
 
@@ -246,7 +251,9 @@ test("clear-all: second click within the window clears the feed to its empty sta
   expect((globalThis as any).__sbFetches).toContain("/api/notifications/clear");
   expect(ids["feed"].innerHTML).toContain("Quiet on the line");
   expect(btn.hidden).toBe(true);
-  expect(btn.textContent).toBe("clear all"); // disarmed again
+  expect(btn.dataset.armed).toBe(""); // disarmed again
+  expect(btn.classList.contains("active")).toBe(false);
+  expect(btn.title).toBe("Clear all notifications");
 });
 
 test("clear-all: after the arm lapses, a click re-arms instead of clearing", async () => {
@@ -255,7 +262,9 @@ test("clear-all: after the arm lapses, a click re-arms instead of clearing", asy
   for (const f of btn._listeners["click"] || []) await f(); // arm
   // simulate the 5s expiry firing (disarmClear):
   btn.dataset.armed = "";
-  btn.textContent = "clear all";
+  btn.classList.remove("active");
+  btn.title = "Clear all notifications";
+  btn.setAttribute("aria-label", "Clear all notifications");
   for (const f of btn._listeners["click"] || []) await f(); // click again: re-arms
   await new Promise((r) => setTimeout(r, 150));
   expect((globalThis as any).__sbFetches).not.toContain("/api/notifications/clear");

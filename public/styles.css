@@ -326,6 +326,8 @@ input[type="range"] { width: 100%; accent-color: var(--blue); }
 .mini-btn { transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease; }
 .mini-btn:hover { transform: translateY(-1px); }
 .mini-btn:active { transform: translateY(0); }
+.mini-btn.icon-btn { padding: 5px 8px; display: inline-flex; align-items: center; }
+.mini-btn.icon-btn svg { width: 16px; height: 16px; display: block; }
 .channel { transition: background 0.25s ease, border-color 0.25s ease, transform 0.2s ease, box-shadow 0.2s ease; }
 .channel:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(88, 110, 117, 0.12); }
 
