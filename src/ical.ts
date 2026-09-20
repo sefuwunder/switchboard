@@ -11,6 +11,8 @@ export interface IcalOccurrence {
   location: string;
   url: string;
   startMs: number;
+  /** ATTENDEE values, "CN <email>" or plain email, in VEVENT order. */
+  attendees: string[];
 }
 
 interface WallTime { y: number; mo: number; d: number; h: number; mi: number; s: number }
@@ -39,6 +41,7 @@ interface CalEvent {
   start: DateProp;
   rrule: RRule | null;
   exdates: DateProp[];
+  attendees: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -255,6 +258,7 @@ function buildEvent(props: Prop[]): CalEvent | null {
   let start: DateProp | null = null;
   let rrule: RRule | null = null;
   const exdates: DateProp[] = [];
+  const attendees: string[] = [];
   let hasRecurrenceId = false;
   for (const p of props) {
     switch (p.name) {
@@ -264,6 +268,14 @@ function buildEvent(props: Prop[]): CalEvent | null {
       case "LOCATION": location = unescapeText(p.value); break;
       case "URL": url = p.value; break;
       case "STATUS": status = p.value.toUpperCase(); break;
+      case "ATTENDEE": {
+        const email = p.value.replace(/^mailto:/i, "").trim();
+        const cn = (p.params.CN || "").trim();
+        const who = cn && email && !email.toLowerCase().includes(cn.toLowerCase())
+          ? `${cn} <${email}>` : email || cn;
+        if (who && !attendees.includes(who)) attendees.push(who);
+        break;
+      }
       case "DTSTART": start = parseDateValue(p.value, p.params); break;
       case "RRULE": rrule = parseRRule(p.value); break;
       case "RECURRENCE-ID": hasRecurrenceId = true; break;
@@ -278,7 +290,7 @@ function buildEvent(props: Prop[]): CalEvent | null {
   }
   if (!start || status === "CANCELLED" || hasRecurrenceId) return null;
   if (!uid) uid = `${summary}-${datePropToMs(start)}`;
-  return { uid, summary, description, location, url, start, rrule, exdates };
+  return { uid, summary, description, location, url, start, rrule, exdates, attendees };
 }
 
 export function parseIcs(text: string): CalEvent[] {
@@ -312,6 +324,7 @@ export function upcomingFromIcs(text: string, fromMs: number, toMs: number): Ica
         location: ev.location,
         url: ev.url,
         startMs,
+        attendees: ev.attendees,
       });
     }
   }

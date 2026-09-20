@@ -50,6 +50,49 @@ function inQuietHours(s: Record<string, string>, now: Date): boolean {
   return a < b ? cur >= a && cur < b : cur >= a || cur < b; // overnight wrap
 }
 
+// ---------------------------------------------------------------------------
+// VIP overrides: contacts whose mentions break quiet hours at low priority.
+// ---------------------------------------------------------------------------
+
+export interface VipContact {
+  name: string;
+  matches: string[];
+}
+
+/** Parse the vip_list setting (JSON array of {name, matches[]}); never throws. */
+export function getVips(s: Record<string, string>): VipContact[] {
+  let arr: unknown;
+  try {
+    arr = JSON.parse(s.vip_list || "[]");
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(arr)) return [];
+  const out: VipContact[] = [];
+  for (const v of arr.slice(0, 50)) {
+    if (!v || typeof v !== "object") continue;
+    const name = String((v as any).name || "").trim();
+    const matches = Array.isArray((v as any).matches)
+      ? (v as any).matches.map((x: unknown) => String(x || "").trim().toLowerCase()).filter(Boolean)
+      : [];
+    if (name && matches.length) out.push({ name, matches });
+  }
+  return out;
+}
+
+/**
+ * Does the sender string identify a VIP? Case-insensitive substring match
+ * against any of the contact's match strings. Returns the contact name.
+ */
+export function matchVip(sender: string, vips: VipContact[]): string | null {
+  const s = (sender || "").toLowerCase();
+  if (!s) return null;
+  for (const v of vips) {
+    if (v.matches.some((m) => s.includes(m))) return v.name;
+  }
+  return null;
+}
+
 async function pollChannel(db: Database, ch: Channel, broadcast: Broadcast): Promise<void> {
   const def = CHANNEL_DEFS.find((d) => d.id === ch.id);
   if (!def) return;
@@ -73,7 +116,7 @@ async function pollChannel(db: Database, ch: Channel, broadcast: Broadcast): Pro
   }
 }
 
-function emitInstant(db: Database, s: Signal, broadcast: Broadcast): void {
+function emitInstant(db: Database, s: Signal, broadcast: Broadcast, vip = false): void {
   const fields = {
     kind: "instant",
     title: s.title,
@@ -81,15 +124,17 @@ function emitInstant(db: Database, s: Signal, broadcast: Broadcast): void {
     url: s.url,
     priority: s.priority,
     channel_id: s.channel_id,
+    vip,
   };
   const n = isDoubleTrigger(db, fields) ? null : addNotification(db, fields);
   if (n) broadcast({ type: "notification", notification: n });
 }
 
-function routeSignals(db: Database, s: Record<string, string>, broadcast: Broadcast, now: number): void {
+export function routeSignals(db: Database, s: Record<string, string>, broadcast: Broadcast, now: number): void {
   const dnd = s.dnd === "1";
   const quiet = inQuietHours(s, new Date(now));
   const urgentBreaks = s.urgent_breaks_quiet === "1";
+  const vips = getVips(s);
   for (const sig of unprocessedSignals(db)) {
     if (dnd) continue; // DND: hold everything for later; do NOT mark processed
     const ch = getChannel(db, sig.channel_id);
@@ -105,10 +150,16 @@ function routeSignals(db: Database, s: Record<string, string>, broadcast: Broadc
       continue;
     }
     const breaksQuiet = sig.priority === "urgent" && urgentBreaks;
-    // Urgent is an alert: it always goes out instantly, even in digest mode —
-    // the same way it can break quiet hours. A digest-only signal never does.
-    if (!sig.digest_only && (ch.mode === "instant" || sig.priority === "urgent") && (!quiet || breaksQuiet)) {
-      emitInstant(db, sig, broadcast);
+    const vipName = matchVip(sig.sender, vips);
+    // VIP override: a matched sender is never silenced by quiet hours. It
+    // goes out instantly at low priority with a VIP badge, the quiet-hours
+    // equivalent of urgent breaking through — but quieter. DND still holds
+    // everything (it is an explicit, manual silence).
+    const vipBypass = !!vipName && !sig.digest_only && quiet && !breaksQuiet;
+    const priority = vipBypass ? "low" : sig.priority;
+    if (!sig.digest_only && (ch.mode === "instant" || sig.priority === "urgent" || vipBypass) &&
+        (!quiet || breaksQuiet || vipBypass)) {
+      emitInstant(db, { ...sig, priority }, broadcast, !!vipName);
     } else {
       enqueueDigest(db, sig.id);
     }

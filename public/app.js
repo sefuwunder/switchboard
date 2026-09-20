@@ -11,6 +11,7 @@ const LOGOS = {
   clickup: LOGO_OPEN + '<path d="M6.5 3.8 19 13.2l-7.4 1.2-3.4 6.1-1.7-16.7z"/></svg>',
   anytype: LOGO_OPEN + '<path d="M12 4.5 19.5 19.5h-15L12 4.5z"/><path d="M12 12.5v7"/></svg>',
   github: LOGO_OPEN + '<circle cx="12" cy="5.5" r="2.2"/><circle cx="6" cy="18.5" r="2.2"/><circle cx="18" cy="18.5" r="2.2"/><path d="M12 7.7v4.1c0 2.6-3.2 2.7-4.3 4.5M12 11.8c0 2.6 3.2 2.7 4.3 4.5"/></svg>',
+  ascent: LOGO_OPEN + '<path d="M4 19 12 5.5 20 19"/><circle cx="12" cy="5.5" r="1.4"/></svg>',
 };
 const LOGO_FALLBACK = LOGO_OPEN + '<path d="M9 7V3.5M15 7V3.5M7 7h10v3.5a5 5 0 0 1-10 0V7zM12 15.5V21"/></svg>';
 const logoFor = (id) => LOGOS[id] || LOGO_FALLBACK;
@@ -50,6 +51,48 @@ function renderMaster() {
   $("digest-minutes").value = s.digest_minutes || 60;
   $("urgent-breaks").checked = s.urgent_breaks_quiet !== "0";
   quietBadge();
+  renderVipList();
+}
+
+// ---------- VIP contacts ----------
+function getVipList() {
+  try {
+    const a = JSON.parse(state.settings.vip_list || "[]");
+    return Array.isArray(a) ? a : [];
+  } catch { return []; }
+}
+
+function renderVipList() {
+  const box = $("vip-list");
+  const list = getVipList();
+  box.innerHTML = "";
+  if (!list.length) {
+    box.innerHTML = `<p class="muted" style="font-size:12px">No VIPs yet — signals from everyone follow the normal rules.</p>`;
+    return;
+  }
+  for (const v of list) {
+    const row = document.createElement("div");
+    row.className = "ch-row";
+    row.innerHTML = `<span class="badge vip">${esc(v.name)}</span>
+      <span class="muted" style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((v.matches || []).join(", "))}</span>
+      <span class="grow"></span>
+      <button class="mini-btn vip-rm">remove</button>`;
+    row.querySelector(".vip-rm").addEventListener("click", () => {
+      patchSettings({ vip_list: JSON.stringify(getVipList().filter((x) => x.name !== v.name)) });
+    });
+    box.appendChild(row);
+  }
+}
+
+function addVipFromInputs() {
+  const name = $("vip-name").value.trim();
+  const matches = $("vip-matches").value.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!name || !matches.length) return;
+  const next = getVipList().filter((x) => x.name !== name);
+  next.push({ name, matches });
+  $("vip-name").value = "";
+  $("vip-matches").value = "";
+  patchSettings({ vip_list: JSON.stringify(next) });
 }
 
 // ---------- patch bay ----------
@@ -140,6 +183,12 @@ function renderChannels() {
             <input type="password" class="mini-btn gcal-url" style="flex:1;min-width:0" placeholder="${state.settings.gcal_ical_set === "1" ? "feed saved — paste a new URL to replace" : "https://calendar.google.com/calendar/ical/…/basic.ics"}" aria-label="Calendar iCal feed URL">
           </div>
           <div class="ch-row"><span class="muted" style="font-size:11px">Google Calendar → Settings → your calendar → “Secret address in iCal format”.</span></div>` : ""}
+          ${c.id === "ascent" ? `
+          <div class="ch-row">
+            <span title="The local Ascent app's HTTP address (Ascent → port 3004 by default)">Ascent URL</span>
+            <input type="text" class="mini-btn ascent-url" style="flex:1;min-width:0;cursor:text;color:var(--text)" value="${esc(state.settings.ascent_base_url || "http://127.0.0.1:3004")}" placeholder="http://127.0.0.1:3004" aria-label="Ascent base URL">
+          </div>
+          <div class="ch-row"><span class="muted" style="font-size:11px">Polls Ascent's My Day: due today → normal, overdue → high. Patch in above to enable.</span></div>` : ""}
           <div class="ch-row">
             <span>Snooze channel</span>
             ${[15, 60, 240].map((m) => `<button class="mini-btn snooze" data-min="${m}">${m >= 60 ? m / 60 + "h" : m + "m"}</button>`).join("")}
@@ -174,8 +223,7 @@ function renderChannels() {
     el.querySelector(".poll-minutes").addEventListener("change", (e) =>
       patchChannel(c.id, { poll_minutes: Number(e.target.value) }));
     const gu = el.querySelector(".gcal-url");
-    if (gu) {
-      let deb;
+    if (gu) {      let deb;
       const saveUrl = async (immediate) => {
         clearTimeout(deb);
         const v = gu.value.trim();
@@ -193,6 +241,22 @@ function renderChannels() {
       };
       gu.addEventListener("input", () => saveUrl(false));
       gu.addEventListener("change", () => saveUrl(true));
+    }
+    const au = el.querySelector(".ascent-url");
+    if (au) {
+      let deb;
+      au.addEventListener("input", () => {
+        clearTimeout(deb);
+        deb = setTimeout(async () => {
+          await patchSettings({ ascent_base_url: au.value.trim() });
+          fetch(`/api/channels/ascent/poll`, { method: "POST" }); // try it right away
+        }, 800);
+      });
+      au.addEventListener("change", async () => {
+        clearTimeout(deb);
+        await patchSettings({ ascent_base_url: au.value.trim() });
+        fetch(`/api/channels/ascent/poll`, { method: "POST" });
+      });
     }
     el.querySelectorAll(".snooze").forEach((b) =>
       b.addEventListener("click", async () => {
@@ -336,6 +400,7 @@ function noteHtml(n) {
   return `
     <div class="note-top">
       <span class="note-tag">${n.kind === "digest" ? "digest" : esc(n.channel_id || "line")}</span>
+      ${n.vip ? `<span class="badge vip" title="From a VIP contact — broke quiet hours">VIP</span>` : ""}
       <span class="note-title">${esc(n.title)}</span>
     </div>
     ${n.body ? `<div class="note-body">${esc(n.body)}</div>` : ""}
@@ -422,6 +487,7 @@ function archiveRow(n) {
     <div class="note ${n.kind === "digest" ? "digest" : n.priority} ${n.status}">
       <div class="note-top">
         <span class="note-tag">${n.kind === "digest" ? "digest" : esc(n.channel_id || "line")}</span>
+        ${n.vip ? `<span class="badge vip">VIP</span>` : ""}
         <span class="note-title">${esc(n.title)}</span>
       </div>
       ${n.body ? `<div class="note-body">${esc(n.body)}</div>` : ""}
@@ -471,6 +537,7 @@ function starredRow(n) {
   return `
     <div class="note-top">
       <span class="note-tag">${n.kind === "digest" ? "digest" : esc(n.channel_id || "line")}</span>
+      ${n.vip ? `<span class="badge vip">VIP</span>` : ""}
       <span class="note-title">${esc(n.title)}</span>
     </div>
     ${n.body ? `<div class="note-body">${esc(n.body)}</div>` : ""}
@@ -508,6 +575,51 @@ async function loadStarred() {
   const d = await r.json();
   state.starred = d.notifications || [];
   renderStarred();
+}
+
+// ---------- insights (weekly signal analytics) ----------
+function hourLabel(h) {
+  const ap = h < 12 ? "am" : "pm";
+  const hh = h % 12 === 0 ? 12 : h % 12;
+  return `${hh}${ap}`;
+}
+
+function channelLabel(id) {
+  const c = state.channels.find((x) => x.id === id);
+  return c ? (c.meta?.label || c.id) : id;
+}
+
+function insBars(rows, labelFn) {
+  const max = Math.max(1, ...rows.map((r) => r.count));
+  return rows.map((r) => `
+    <div class="ins-row">
+      <span class="ins-label">${esc(labelFn(r))}</span>
+      <span class="ibar"><i style="width:${Math.round((r.count / max) * 100)}%"></i></span>
+      <span class="ins-n">${r.count}</span>
+    </div>`).join("");
+}
+
+function renderInsights(ins) {
+  const box = $("insights");
+  if (!ins || !ins.total_signals) {
+    box.innerHTML = `<p class="muted">No signals in the last ${ins ? ins.window_days : 7} days — nothing to analyze yet.</p>`;
+    return;
+  }
+  const o = ins.outcomes;
+  box.innerHTML = `
+    <div class="ins-head">${ins.total_signals} signals · ${o.open + o.snoozed + o.handled} notifications</div>
+    <div class="ins-sec"><div class="ins-title">Signals by channel</div>${insBars(ins.signals_by_channel, (r) => channelLabel(r.channel_id))}</div>
+    <div class="ins-sec"><div class="ins-title">What happened to them</div>${insBars([
+      { label: "open", count: o.open }, { label: "snoozed", count: o.snoozed }, { label: "handled", count: o.handled },
+    ], (r) => r.label)}</div>
+    ${ins.busiest_hours.length ? `<div class="ins-sec"><div class="ins-title">Busiest hours</div>${insBars(ins.busiest_hours, (r) => hourLabel(r.hour))}</div>` : ""}
+    ${ins.top_senders.length ? `<div class="ins-sec"><div class="ins-title">Noisiest senders</div>${insBars(ins.top_senders, (r) => r.sender)}</div>` : ""}`;
+}
+
+async function loadInsights() {
+  const r = await fetch("/api/insights");
+  const d = await r.json();
+  renderInsights(d.insights);
 }
 
 // ---------- live ----------
@@ -585,6 +697,9 @@ $("theme-btn").addEventListener("click", () => {
   try { localStorage.setItem("sb-theme", dark ? "dark" : "light"); } catch { /* private mode */ }
 });
 
+$("vip-add").addEventListener("click", addVipFromInputs);
+$("vip-matches").addEventListener("keydown", (e) => { if (e.key === "Enter") addVipFromInputs(); });
+$("insights-refresh").addEventListener("click", loadInsights);
 $("quiet-toggle").addEventListener("click", () =>
   patchSettings({ quiet_enabled: state.settings.quiet_enabled !== "1" }));
 $("dnd-toggle").addEventListener("click", () =>
@@ -615,6 +730,7 @@ $("test-btn").addEventListener("click", async () => {
 
 (async function init() {
   await Promise.all([loadChannels(), loadSettings(), loadFeed(), loadArchive(true), loadStarred()]);
+  await loadInsights();
   subscribe();
 })();
 

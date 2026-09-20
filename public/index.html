@@ -57,6 +57,16 @@
           <span>Urgent breaks quiet hours</span>
         </label>
       </div>
+      <div class="vip-wrap">
+        <div class="ctl"><span>VIP contacts</span></div>
+        <div id="vip-list" class="vip-list"></div>
+        <div class="ch-row">
+          <input id="vip-name" class="mini-btn" style="width:110px;cursor:text;color:var(--text)" placeholder="Name" aria-label="VIP name">
+          <input id="vip-matches" class="mini-btn" style="flex:1;min-width:0;cursor:text;color:var(--text)" placeholder="match strings, comma separated" aria-label="VIP match strings">
+          <button id="vip-add" class="mini-btn">add</button>
+        </div>
+        <div class="muted" style="font-size:11px">A VIP's signals break quiet hours at low priority with a VIP badge. Match substrings hit sender names/emails on ClickUp (assignees), GitHub (repo-event actors) and calendar (attendees). Ascent has no sender identity; DND still holds everything.</div>
+      </div>
     </div></div>
   </section>
 
@@ -89,6 +99,11 @@
         <button id="archive-more" class="mini-btn" hidden>Show more</button>
       </div>
     </div>
+  </section>
+
+  <section class="panel" aria-label="Insights">
+    <div class="panel-head"><svg class="sec-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg><h2>Insights</h2><span class="panel-sub">last 7 days</span><span style="flex:1"></span><button id="insights-refresh" class="mini-btn">refresh</button></div>
+    <div id="insights"><p class="muted">Loading&hellip;</p></div>
   </section>
 </main>
 

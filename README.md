@@ -26,6 +26,7 @@ tooltips.
 | ClickUp | Outstanding tasks on your list — tiered nag until marked done (see below) | Works out of the box (skill credential or `CLICKUP_TOKEN`) |
 | Anytype | Open tasks from your local Anytype app | Pair via the patch bay card (desktop app must be running) |
 | GitHub | Unread notifications (mentions, review requests, CI) + repo activity (pushes, issues, PRs, releases, stars) | `GITHUB_TOKEN` in `.env` — see below |
+| Ascent | Your Ascent "My Day": tasks due today + overdue | Ascent running on this machine — see below |
 
 Each channel poll is a local call with a hard timeout; a failing
 channel reports its error on its card without disturbing the others.
@@ -56,6 +57,13 @@ task due tomorrow morning counts as "due tomorrow" even if that's
   Urgent signals can break through (toggleable).
 - **DND** — the toggle on the Master lead line holds *all* notifications
   (even urgent) until switched off; held signals route normally afterwards.
+- **VIP contacts** — names/emails on the Master panel whose signals break
+  quiet hours: they go out instantly at **low** priority with a VIP
+  badge, the quiet-hours equivalent of urgent breaking through — but
+  quieter. Matching is case-insensitive substring on the sender:
+  ClickUp uses the first assignee, GitHub uses the repo-event actor,
+  Calendar uses the first attendee. Ascent has no sender identity, so its
+  tasks never match. DND still holds everything, VIPs included.
 - **Digest** — low-priority and held signals bundle into one
   `📦 Digest` every N minutes (default 60). A channel's **Poll now**
   button polls immediately and flushes the pending digest, so you see
@@ -146,6 +154,31 @@ instantly (red, breaks the digest and — if enabled — quiet hours), even
 though the channel defaults to digest mode. A task that *becomes* due fires
 a fresh alert; one that stays due doesn't re-alert every poll.
 
+## Ascent setup
+
+The Ascent channel polls your Ascent app's **My Day** (`/api/myday`) on
+this machine — default `http://127.0.0.1:3004`, changeable in the Ascent
+card (paste the URL, it polls immediately). Ascent must be running.
+
+- **Due today** → normal priority · **Overdue** → high priority.
+  Tasks without a due date stay quiet.
+- Polls every 5 minutes. Each task's identity includes its due band, so
+  when a task escalates from "due today" to "overdue" it fires again as a
+  fresh reminder (the earlier heads-up can't swallow the escalation).
+- If Ascent isn't reachable the card shows NOT CONNECTED with a hint.
+
+## Insights
+
+The Insights panel at the bottom of the board aggregates the last 7 days
+of signals — computed read-only from the existing tables, no extra
+storage. `GET /api/insights` returns the same JSON.
+
+- **Signals by channel** — where your noise comes from.
+- **What happened to them** — `open` (still waiting), `snoozed`,
+  `handled` (dismissed or sent and gone).
+- **Busiest hours** — when signals fire, in your local time.
+- **Noisiest senders** — who/what triggers the most signals.
+
 ## API
 
 - `GET /api/channels` · `PATCH /api/channels/:id` (`enabled`, `mode`, `min_priority`, `poll_minutes`)
@@ -155,7 +188,8 @@ a fresh alert; one that stays due doesn't re-alert every poll.
 - `POST /api/channels/anytype/challenge` → `{ challenge_id }` (4-digit code shows in Anytype)
 - `POST /api/channels/anytype/pair` (`challenge_id`, `code`) → stores the API key
 - `POST /api/channels/anytype/key` (`key`) → verify + store a pasted API key
-- `GET|PATCH /api/settings` (`quiet_enabled`, `quiet_start`, `quiet_end`, `digest_minutes`, `urgent_breaks_quiet`)
+- `GET|PATCH /api/settings` (`quiet_enabled`, `quiet_start`, `quiet_end`, `digest_minutes`, `urgent_breaks_quiet`, `dnd`, `gcal_ical_url`, `ascent_base_url`, `vip_list` — JSON array of `{ name, matches[] }`)
+- `GET /api/insights` — 7-day aggregates: total signals, per-channel counts, open/snoozed/handled outcomes, busiest local hours, top senders
 - `GET /api/notifications` (`limit`, `offset`, `q` — searchable archive, newest first; `starred=1` — only pinned reminders; `total` included when searching, paging, or filtering starred)
 - `POST /api/notifications/:id/dismiss|snooze|star` (`star` toggles unless given `{ "starred": true|false }`)
 - `POST /api/test` — fire a test signal through the router

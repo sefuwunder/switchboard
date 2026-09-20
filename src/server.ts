@@ -6,7 +6,7 @@
 import { Database } from "bun:sqlite";
 import {
   openDb, getChannels, getChannel, updateChannel, getSettings, getPublicSettings, setSetting,
-  recentNotifications, searchNotifications, getNotification, updateNotification,
+  recentNotifications, searchNotifications, getNotification, updateNotification, getInsights,
 } from "./db";
 import { CHANNEL_DEFS } from "./channels";
 import { anytypeChallenge, anytypePair, anytypeProbe, githubConfigured } from "./channels";
@@ -29,13 +29,14 @@ const db: Database = openDb(DB_PATH);
     clickup: ["digest", "low", 30],
     anytype: ["digest", "low", 30],
     github: ["digest", "normal", 15],
+    ascent: ["digest", "low", 5],
   };
   for (const d of CHANNEL_DEFS) {
     const [mode, minp, mins] = defaults[d.id] || ["digest", "normal", 15];
     seed.run(d.id, d.label, mode, minp, mins);
   }
   // Drop channels that no longer exist (e.g. after a channel is removed).
-  db.exec(`DELETE FROM channels WHERE id NOT IN ('calendar','clickup','anytype','github')`);
+  db.exec(`DELETE FROM channels WHERE id NOT IN ('calendar','clickup','anytype','github','ascent')`);
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +168,12 @@ async function handle(req: Request): Promise<Response> {
         error: "GitHub isn't configured — set GITHUB_TOKEN in .env (see README) and restart.",
       });
     }
+    if (mm[1] === "ascent") {
+      return json({
+        connectUrl: null,
+        error: "Ascent isn't reachable — check the base URL in the Ascent section below and make sure Ascent is running on this machine (default http://127.0.0.1:3004).",
+      });
+    }
     const connectUrl = await def.connectUrl();
     return json({ connectUrl, pairing: !!def.pairing });
   }
@@ -209,7 +216,7 @@ async function handle(req: Request): Promise<Response> {
     const body = await readJson(req);
     const allowed = new Set([
       "quiet_enabled", "quiet_start", "quiet_end", "digest_minutes", "urgent_breaks_quiet",
-      "dnd", "gcal_ical_url",
+      "dnd", "gcal_ical_url", "ascent_base_url", "vip_list",
     ]);
     for (const [k, v] of Object.entries(body)) {
       if (!allowed.has(k)) continue;
@@ -220,6 +227,27 @@ async function handle(req: Request): Promise<Response> {
       if (k === "gcal_ical_url") {
         val = val.trim().slice(0, 2000);
         if (val && !/^https:\/\//i.test(val)) continue; // secret feed URLs only
+      }
+      if (k === "ascent_base_url") {
+        val = val.trim().slice(0, 500).replace(/\/+$/, "");
+        if (val && !/^https?:\/\//i.test(val)) continue; // localhost http is fine
+      }
+      if (k === "vip_list") {
+        let arr: unknown;
+        try { arr = JSON.parse(val); } catch { continue; }
+        if (!Array.isArray(arr) || arr.length > 50) continue;
+        const clean: { name: string; matches: string[] }[] = [];
+        for (const item of arr) {
+          if (!item || typeof item !== "object") continue;
+          const name = String((item as any).name || "").trim().slice(0, 80);
+          const matches = Array.isArray((item as any).matches)
+            ? (item as any).matches
+                .map((x: unknown) => String(x || "").trim().slice(0, 120))
+                .filter(Boolean).slice(0, 8)
+            : [];
+          if (name && matches.length) clean.push({ name, matches });
+        }
+        val = JSON.stringify(clean);
       }
       setSetting(db, k, val);
     }
@@ -263,6 +291,10 @@ async function handle(req: Request): Promise<Response> {
     const priority = PRIORITIES.has(body.priority) ? body.priority : "normal";
     injectTest(db, broadcast, String(body.title || "Test signal"), priority);
     return json({ ok: true });
+  }
+
+  if (p === "/api/insights" && m === "GET") {
+    return json({ insights: getInsights(db) });
   }
 
   return new Response("Not found", { status: 404 });

@@ -14,6 +14,12 @@ export interface SignalInput {
   priority: "low" | "normal" | "high" | "urgent";
   /** When true, the signal only ever goes to the digest, never instant. */
   digestOnly?: boolean;
+  /**
+   * Sender/author identity for VIP matching (attendee, assignee, actor…).
+   * Channels without a sender concept leave it unset; Ascent tasks carry
+   * no assignee identity and deliberately skip VIP matching.
+   */
+  sender?: string;
 }
 
 export interface PollResult {
@@ -97,6 +103,8 @@ async function pollCalendar({ db }: ChannelCtx): Promise<PollResult> {
       body: `Starts ${relTime(occ.startMs)}${where}`.slice(0, 220),
       url: occ.url,
       priority: band,
+      // VIP matching: first listed attendee is the event's sender.
+      sender: occ.attendees[0] || undefined,
     });
     if (signals.length >= 20) break;
   }
@@ -150,6 +158,16 @@ async function fetchClickUpViaSkill(): Promise<any[]> {
 }
 
 const DONE_RE = /complete|done|closed/i;
+
+/** First assignee's identity, for VIP matching ("Name <email>" or either). */
+function clickUpAssignee(t: any): string | undefined {
+  const a = Array.isArray(t.assignees) ? t.assignees[0] : null;
+  if (!a) return undefined;
+  const name = String(a.username || a.name || "").trim();
+  const email = String(a.email || "").trim();
+  const who = name && email ? `${name} <${email}>` : name || email;
+  return who || undefined;
+}
 
 async function pollClickUp(): Promise<PollResult> {
   let raw: any[];
@@ -208,6 +226,7 @@ async function pollClickUp(): Promise<PollResult> {
       url: `https://app.clickup.com/t/${id}`,
       priority,
       digestOnly,
+      sender: clickUpAssignee(t),
     });
     if (signals.length >= 30) break;
   }
@@ -595,7 +614,7 @@ function repoEventSignal(ev: any): SignalInput | null {
     default:
       return null; // CreateEvent, DeleteEvent, comments… stay in the inbox feed
   }
-  return { ext_id: `github-event:${id}`, title, body, url, priority };
+  return { ext_id: `github-event:${id}`, title, body, url, priority, sender: actor || undefined };
 }
 
 async function pollGitHub(): Promise<PollResult> {
@@ -647,6 +666,89 @@ async function pollGitHub(): Promise<PollResult> {
 }
 
 // ---------------------------------------------------------------------------
+// Ascent: due-date reminders from the local Ascent task app (port 3004).
+// Polls GET /api/myday, which returns the app's own Overdue / Due today /
+// In progress grouping. Signals fire only for the due-dated groups:
+// overdue -> high, due today -> normal. In-progress-but-undated tasks stay
+// quiet. Ascent tasks carry no assignee identity, so they skip VIP matching.
+// ---------------------------------------------------------------------------
+
+const ASCENT_DEFAULT_BASE = "http://127.0.0.1:3004";
+
+export function ascentBaseUrl(db: Database): string {
+  return (getSetting(db, "ascent_base_url") || ASCENT_DEFAULT_BASE).trim().replace(/\/+$/, "") || ASCENT_DEFAULT_BASE;
+}
+
+/** Local-calendar start of day, for due-day identity keys. */
+function ascentDayStart(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/**
+ * Pure mapping of an Ascent /api/myday response to candidate signals.
+ * Exported for tests; pollAscent is the thin fetch wrapper around it.
+ */
+export function ascentSignalsFromMyDay(j: any, nowMs: number, base: string): SignalInput[] {
+  const signals: SignalInput[] = [];
+  const groups: [any[], "overdue" | "due"][] = [
+    [Array.isArray(j?.overdue) ? j.overdue : [], "overdue"],
+    [Array.isArray(j?.today) ? j.today : [], "due"],
+  ];
+  for (const [tasks, band] of groups) {
+    for (const t of tasks) {
+      const id = String(t.id ?? t.title ?? "");
+      if (!id) continue;
+      const dueMs = Number(t.dueMs) || 0;
+      const dayStart = dueMs ? ascentDayStart(dueMs) : ascentDayStart(nowMs);
+      const name = String(t.title ?? "(untitled task)");
+      const project = String(t.project_name ?? "").trim();
+      const overdueBy = band === "overdue" && dueMs
+        ? Math.max(1, Math.round((ascentDayStart(nowMs) - dayStart) / 86400000))
+        : 0;
+      signals.push({
+        // The band is part of the identity (same idiom as the calendar
+        // channel's cal:{uid}:{startMs}:{band}): a task that was seen — and
+        // possibly fader-dropped or digested — as "due today" must re-fire
+        // as a NEW signal when it escalates to "overdue", instead of being
+        // swallowed by dedupe on the unchanged ext_id.
+        ext_id: `ascent:${id}:${dayStart}:${band}`,
+        title: name,
+        body: `${project ? `${project} · ` : ""}${band === "overdue" ? `overdue by ${overdueBy}d` : "due today"}`.slice(0, 220),
+        url: `${base}/#/myday`,
+        priority: band === "overdue" ? "high" : "normal",
+      });
+    }
+  }
+  // Most pressing first so the digest leads with what matters.
+  const rank = { urgent: 0, high: 1, normal: 2, low: 3 };
+  signals.sort((a, b) => rank[a.priority] - rank[b.priority]);
+  return signals;
+}
+
+async function pollAscent({ db }: ChannelCtx): Promise<PollResult> {
+  const base = ascentBaseUrl(db);
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 20000);
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/myday`, { signal: ctrl.signal });
+  } catch {
+    // Ascent isn't running (or unreachable): the channel shows NOT CONNECTED
+    // with a setup hint, the same pattern as the GitHub channel.
+    return { ok: false, signals: [], error: "not_connected" };
+  } finally {
+    clearTimeout(t);
+  }
+  if (!res.ok) return { ok: false, signals: [], error: `Ascent HTTP ${res.status}` };
+  const j = await res.json().catch(() => null);
+  if (!j || typeof j !== "object")
+    return { ok: false, signals: [], error: "Ascent returned an unexpected response" };
+  return { ok: true, signals: ascentSignalsFromMyDay(j, Date.now(), base) };
+}
+
+// ---------------------------------------------------------------------------
 
 export const CHANNEL_DEFS: ChannelDef[] = [
   { id: "calendar", label: "Google Calendar", poll: pollCalendar, connectUrl: async () => null },
@@ -656,4 +758,5 @@ export const CHANNEL_DEFS: ChannelDef[] = [
     id: "github", label: "GitHub", poll: pollGitHub,
     connectUrl: async () => (githubConfigured() ? githubSetupUrl() : null),
   },
+  { id: "ascent", label: "Ascent", poll: pollAscent, connectUrl: async () => null },
 ];

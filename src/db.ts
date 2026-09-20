@@ -25,6 +25,8 @@ export interface Signal {
   digest_only: number;
   detected_at: number;
   processed: number;
+  /** Sender/author identity for VIP matching and analytics (may be ""). */
+  sender: string;
 }
 
 export interface Notification {
@@ -40,6 +42,8 @@ export interface Notification {
   created_at: number;
   snooze_until: number;
   starred: number;
+  /** 1 when the signal's sender matched a VIP contact. */
+  vip: number;
 }
 
 const DEFAULT_SETTINGS: Record<string, string> = {
@@ -51,6 +55,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   dnd: "0",
   last_digest_at: "0",
   gcal_ical_url: "",
+  ascent_base_url: "http://127.0.0.1:3004",
+  vip_list: "[]",
 };
 
 export function openDb(path: string): Database {
@@ -108,6 +114,7 @@ export function openDb(path: string): Database {
   seedChannel.run("clickup", "ClickUp", "digest", "low", 30);
   seedChannel.run("anytype", "Anytype", "digest", "low", 30);
   seedChannel.run("github", "GitHub", "digest", "normal", 15);
+  seedChannel.run("ascent", "Ascent", "digest", "low", 5);
 
   const seedSetting = db.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`);
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) seedSetting.run(k, v);
@@ -123,6 +130,16 @@ export function openDb(path: string): Database {
     .map((c) => c.name);
   if (!sigCols.includes("digest_only")) {
     db.exec(`ALTER TABLE signals ADD COLUMN digest_only INTEGER NOT NULL DEFAULT 0`);
+  }
+  // Migration: sender column for signals (VIP matching + analytics).
+  if (!sigCols.includes("sender")) {
+    db.exec(`ALTER TABLE signals ADD COLUMN sender TEXT NOT NULL DEFAULT ''`);
+  }
+  // Migration: vip flag for notifications (VIP override badge).
+  const notifCols = (db.query(`PRAGMA table_info(notifications)`).all() as { name: string }[])
+    .map((c) => c.name);
+  if (!notifCols.includes("vip")) {
+    db.exec(`ALTER TABLE notifications ADD COLUMN vip INTEGER NOT NULL DEFAULT 0`);
   }
   return db;
 }
@@ -197,15 +214,16 @@ export function insertSignal(
   body: string,
   url: string,
   priority: string,
-  digestOnly = false
+  digestOnly = false,
+  sender = ""
 ): number | null {
   const row = db
     .prepare(
       `INSERT OR IGNORE INTO signals
-       (channel_id, ext_id, title, body, url, priority, digest_only, detected_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+       (channel_id, ext_id, title, body, url, priority, digest_only, sender, detected_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
     )
-    .get(channel_id, ext_id, title, body || "", url || "", priority, digestOnly ? 1 : 0, Date.now()) as { id: number } | null;
+    .get(channel_id, ext_id, title, body || "", url || "", priority, digestOnly ? 1 : 0, sender || "", Date.now()) as { id: number } | null;
   return row ? row.id : null;
 }
 
@@ -236,17 +254,17 @@ export function clearDigestQueue(db: Database): void {
 
 export function addNotification(
   db: Database,
-  n: { kind: string; title: string; body?: string; url?: string; priority?: string; channel_id?: string; items?: unknown[] }
+  n: { kind: string; title: string; body?: string; url?: string; priority?: string; channel_id?: string; items?: unknown[]; vip?: boolean }
 ): Notification {
   const row = db
     .prepare(
       `INSERT INTO notifications
-       (kind, title, body, url, priority, channel_id, items, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+       (kind, title, body, url, priority, channel_id, items, vip, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
     )
     .get(
       n.kind, n.title, n.body || "", n.url || "", n.priority || "normal",
-      n.channel_id || "", JSON.stringify(n.items || []), Date.now()
+      n.channel_id || "", JSON.stringify(n.items || []), n.vip ? 1 : 0, Date.now()
     ) as Notification;
   return row;
 }
@@ -303,4 +321,50 @@ export function prune(db: Database): void {
   const month = Date.now() - 30 * 86400 * 1000;
   db.prepare(`DELETE FROM signals WHERE processed = 1 AND detected_at < ?`).run(week);
   db.prepare(`DELETE FROM notifications WHERE created_at < ? AND status != 'snoozed'`).run(month);
+}
+
+export interface Insights {
+  window_days: number;
+  total_signals: number;
+  signals_by_channel: { channel_id: string; count: number }[];
+  /** Notification routing outcomes: open (sent, never handled), snoozed, handled (dismissed). */
+  outcomes: { open: number; snoozed: number; handled: number };
+  busiest_hours: { hour: number; count: number }[];
+  top_senders: { sender: string; count: number }[];
+}
+
+/**
+ * Weekly signal analytics, computed read-only from the existing
+ * signals/notifications tables — no storage changes. The window is the
+ * last 7 days, matching how long processed signals are kept by prune().
+ */
+export function getInsights(db: Database, windowDays = 7): Insights {
+  const since = Date.now() - windowDays * 86400 * 1000;
+  const byChannel = db
+    .query(`SELECT channel_id, COUNT(*) AS c FROM signals WHERE detected_at >= ? GROUP BY channel_id ORDER BY c DESC`)
+    .all(since) as { channel_id: string; c: number }[];
+  const total = byChannel.reduce((n, r) => n + r.c, 0);
+  const outcomes = { open: 0, snoozed: 0, handled: 0 };
+  for (const r of db
+    .query(`SELECT status, COUNT(*) AS c FROM notifications WHERE created_at >= ? GROUP BY status`)
+    .all(since) as { status: string; c: number }[]) {
+    if (r.status === "snoozed") outcomes.snoozed += r.c;
+    else if (r.status === "dismissed") outcomes.handled += r.c;
+    else outcomes.open += r.c; // 'sent' and anything else: still on the line
+  }
+  const hours = db
+    .query(`SELECT CAST(strftime('%H', created_at / 1000, 'unixepoch', 'localtime') AS INTEGER) AS h, COUNT(*) AS c
+            FROM notifications WHERE created_at >= ? GROUP BY h ORDER BY c DESC LIMIT 6`)
+    .all(since) as { h: number; c: number }[];
+  const senders = db
+    .query(`SELECT sender, COUNT(*) AS c FROM signals WHERE detected_at >= ? AND sender != '' GROUP BY sender ORDER BY c DESC LIMIT 10`)
+    .all(since) as { sender: string; c: number }[];
+  return {
+    window_days: windowDays,
+    total_signals: total,
+    signals_by_channel: byChannel.map((r) => ({ channel_id: r.channel_id, count: r.c })),
+    outcomes,
+    busiest_hours: hours.map((r) => ({ hour: r.h, count: r.c })),
+    top_senders: senders.map((r) => ({ sender: r.sender, count: r.c })),
+  };
 }
