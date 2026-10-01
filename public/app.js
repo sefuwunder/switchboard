@@ -189,6 +189,12 @@ function renderChannels() {
             <input type="text" class="mini-btn ascent-url" style="flex:1;min-width:0;cursor:text;color:var(--text)" value="${esc(state.settings.ascent_base_url || "http://127.0.0.1:3004")}" placeholder="http://127.0.0.1:3004" aria-label="Ascent base URL">
           </div>
           <div class="ch-row"><span class="muted" style="font-size:11px">Polls Ascent's My Day: due today → normal, overdue → high. Patch in above to enable.</span></div>` : ""}
+          ${c.id === "relay" ? `
+          <div class="ch-row">
+            <span title="The local Relay app's HTTP address (Relay → port 3006 by default)">Relay URL</span>
+            <input type="text" class="mini-btn relay-url" style="flex:1;min-width:0;cursor:text;color:var(--text)" value="${esc(state.settings.relay_base_url || "http://127.0.0.1:3006")}" placeholder="http://127.0.0.1:3006" aria-label="Relay base URL">
+          </div>
+          <div class="ch-row"><span class="muted" style="font-size:11px">Polls Relay: due commitments → high, appointments <1h → high, rest → normal. Patch in above to enable.</span></div>` : ""}
           <div class="ch-row">
             <span>Snooze channel</span>
             ${[15, 60, 240].map((m) => `<button class="mini-btn snooze" data-min="${m}">${m >= 60 ? m / 60 + "h" : m + "m"}</button>`).join("")}
@@ -241,6 +247,22 @@ function renderChannels() {
       };
       gu.addEventListener("input", () => saveUrl(false));
       gu.addEventListener("change", () => saveUrl(true));
+    }
+    const ru = el.querySelector(".relay-url");
+    if (ru) {
+      let deb;
+      ru.addEventListener("input", () => {
+        clearTimeout(deb);
+        deb = setTimeout(async () => {
+          await patchSettings({ relay_base_url: ru.value.trim() });
+          fetch(`/api/channels/relay/poll`, { method: "POST" }); // try it right away
+        }, 800);
+      });
+      ru.addEventListener("change", async () => {
+        clearTimeout(deb);
+        await patchSettings({ relay_base_url: ru.value.trim() });
+        fetch(`/api/channels/relay/poll`, { method: "POST" });
+      });
     }
     const au = el.querySelector(".ascent-url");
     if (au) {

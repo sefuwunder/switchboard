@@ -27,6 +27,7 @@ tooltips.
 | Anytype | Open tasks from your local Anytype app | Pair via the patch bay card (desktop app must be running) |
 | GitHub | Unread notifications (mentions, review requests, CI) + repo activity (pushes, issues, PRs, releases, stars) | `GITHUB_TOKEN` in `.env` — see below |
 | Ascent | Your Ascent "My Day": tasks due today + overdue | Ascent running on this machine — see below |
+| Relay | Due commitments (promises from your messages) + diary appointments in the next 36h | Relay running on this machine — see below |
 
 Each channel poll is a local call with a hard timeout; a failing
 channel reports its error on its card without disturbing the others.
@@ -166,6 +167,20 @@ card (paste the URL, it polls immediately). Ascent must be running.
   when a task escalates from "due today" to "overdue" it fires again as a
   fresh reminder (the earlier heads-up can't swallow the escalation).
 - If Ascent isn't reachable the card shows NOT CONNECTED with a hint.
+
+## Relay setup
+
+The Relay channel polls your Relay app on this machine — default
+`http://127.0.0.1:3006`, changeable in the Relay card (paste the URL, it
+polls immediately). Relay must be running.
+
+- **Due commitments** (open promises tracked from your messages) → high priority.
+- **Appointments** in the next 36h: starting in under an hour → high,
+  the rest → normal. Declined, cancelled, and past entries stay quiet.
+- Each appointment's identity includes its urgency band, so it fires again
+  as a fresh reminder when it goes under an hour (the earlier heads-up
+  can't swallow the escalation).
+- If Relay isn't reachable the card shows NOT CONNECTED with a hint.
 
 ## Insights
 

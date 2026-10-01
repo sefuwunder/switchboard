@@ -56,6 +56,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   last_digest_at: "0",
   gcal_ical_url: "",
   ascent_base_url: "http://127.0.0.1:3004",
+  relay_base_url: "http://127.0.0.1:3006",
   vip_list: "[]",
 };
 
@@ -115,6 +116,7 @@ export function openDb(path: string): Database {
   seedChannel.run("anytype", "Anytype", "digest", "low", 30);
   seedChannel.run("github", "GitHub", "digest", "normal", 15);
   seedChannel.run("ascent", "Ascent", "digest", "low", 5);
+  seedChannel.run("relay", "Relay", "instant", "normal", 15);
 
   const seedSetting = db.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`);
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) seedSetting.run(k, v);

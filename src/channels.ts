@@ -749,6 +749,113 @@ async function pollAscent({ db }: ChannelCtx): Promise<PollResult> {
 }
 
 // ---------------------------------------------------------------------------
+// Relay: due commitments (promises you owe) + upcoming diary appointments.
+// Polls the local Relay app's API — same localhost convention as Ascent.
+// ---------------------------------------------------------------------------
+
+const RELAY_DEFAULT_BASE = "http://127.0.0.1:3006";
+
+export function relayBaseUrl(db: Database): string {
+  return (getSetting(db, "relay_base_url") || RELAY_DEFAULT_BASE).trim().replace(/\/+$/, "") || RELAY_DEFAULT_BASE;
+}
+
+/**
+ * Pure signal builder. Exported for tests; pollRelay is the thin fetch wrapper.
+ */
+export function relaySignalsFromPayload(
+  commitments: any[],
+  convAppts: { id: string; title: string; appointments: any[] }[],
+  nowMs: number,
+  base: string
+): SignalInput[] {
+  const signals: SignalInput[] = [];
+  const horizon = nowMs + 36 * 3600 * 1000;
+
+  for (const c of Array.isArray(commitments) ? commitments : []) {
+    if (String(c.status || "") !== "open") continue;
+    const id = String(c.id ?? "");
+    if (!id) continue;
+    const due = [c.due_date, c.due_time].filter(Boolean).join(" ").trim();
+    signals.push({
+      ext_id: `relay:commitment:${id}`,
+      title: `Promise: ${String(c.text || "commitment").slice(0, 80)}`,
+      body: (due ? `Due ${due}` : "Due now").slice(0, 220),
+      url: `${base}/#/commitments`,
+      priority: "high",
+    });
+  }
+
+  for (const conv of convAppts) {
+    for (const a of Array.isArray(conv.appointments) ? conv.appointments : []) {
+      if (["declined", "cancelled", "removed"].includes(String(a.status || ""))) continue;
+      const startMs = Date.parse(String(a.starts_at || ""));
+      if (!Number.isFinite(startMs) || startMs < nowMs - 5 * 60000 || startMs > horizon) continue;
+      // Same escalation idiom as the calendar channel: the band is part of
+      // the identity so an appointment re-fires when it goes under an hour.
+      const band = startMs - nowMs < 3600 * 1000 ? "high" : "normal";
+      const where = a.location ? ` @ ${String(a.location).slice(0, 60)}` : "";
+      const who = conv.title ? `${String(conv.title).slice(0, 40)}: ` : "";
+      signals.push({
+        ext_id: `relay:appt:${a.uid || a.id}:${startMs}:${band}`,
+        title: String(a.title || "Appointment"),
+        body: `${who}Starts ${relTime(startMs)}${where}`.slice(0, 220),
+        url: `${base}/#/conversations/${conv.id}`,
+        priority: band,
+      });
+    }
+  }
+
+  // Most pressing first so the digest leads with what matters.
+  const rank = { urgent: 0, high: 1, normal: 2, low: 3 };
+  signals.sort((a, b) => rank[a.priority] - rank[b.priority]);
+  return signals.slice(0, 30);
+}
+
+async function relayFetch(base: string, path: string): Promise<any> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const res = await fetch(`${base}${path}`, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json().catch(() => null);
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function pollRelay({ db }: ChannelCtx): Promise<PollResult> {
+  const base = relayBaseUrl(db);
+  let due: any;
+  try {
+    due = await relayFetch(base, "/api/commitments/due");
+  } catch {
+    // Relay isn't running (or unreachable): the channel shows NOT CONNECTED
+    // with a setup hint, the same pattern as the Ascent channel.
+    return { ok: false, signals: [], error: "not_connected" };
+  }
+  const commitments = Array.isArray(due?.commitments) ? due.commitments : [];
+  // Appointments live per-conversation in Relay — fan out (caps at 8 contacts).
+  const convAppts: { id: string; title: string; appointments: any[] }[] = [];
+  try {
+    const convData = await relayFetch(base, "/api/conversations");
+    const convs = Array.isArray(convData?.conversations) ? convData.conversations : [];
+    for (const conv of convs.slice(0, 12)) {
+      let appointments: any[] = [];
+      try {
+        const d = await relayFetch(base, `/api/conversations/${encodeURIComponent(conv.id)}/appointments`);
+        appointments = Array.isArray(d?.appointments) ? d.appointments : [];
+      } catch {
+        continue; // one bad conversation never kills the poll
+      }
+      convAppts.push({ id: String(conv.id), title: String(conv.title || ""), appointments });
+    }
+  } catch {
+    // appointments are best-effort; commitments already collected
+  }
+  return { ok: true, signals: relaySignalsFromPayload(commitments, convAppts, Date.now(), base) };
+}
+
+// ---------------------------------------------------------------------------
 
 export const CHANNEL_DEFS: ChannelDef[] = [
   { id: "calendar", label: "Google Calendar", poll: pollCalendar, connectUrl: async () => null },
@@ -759,4 +866,5 @@ export const CHANNEL_DEFS: ChannelDef[] = [
     connectUrl: async () => (githubConfigured() ? githubSetupUrl() : null),
   },
   { id: "ascent", label: "Ascent", poll: pollAscent, connectUrl: async () => null },
+  { id: "relay", label: "Relay", poll: pollRelay, connectUrl: async () => null },
 ];

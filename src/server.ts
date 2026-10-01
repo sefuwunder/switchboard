@@ -31,13 +31,14 @@ const db: Database = openDb(DB_PATH);
     anytype: ["digest", "low", 30],
     github: ["digest", "normal", 15],
     ascent: ["digest", "low", 5],
+    relay: ["instant", "normal", 15],
   };
   for (const d of CHANNEL_DEFS) {
     const [mode, minp, mins] = defaults[d.id] || ["digest", "normal", 15];
     seed.run(d.id, d.label, mode, minp, mins);
   }
   // Drop channels that no longer exist (e.g. after a channel is removed).
-  db.exec(`DELETE FROM channels WHERE id NOT IN ('calendar','clickup','anytype','github','ascent')`);
+  db.exec(`DELETE FROM channels WHERE id NOT IN ('calendar','clickup','anytype','github','ascent','relay')`);
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +176,12 @@ async function handle(req: Request): Promise<Response> {
         error: "Ascent isn't reachable — check the base URL in the Ascent section below and make sure Ascent is running on this machine (default http://127.0.0.1:3004).",
       });
     }
+    if (mm[1] === "relay") {
+      return json({
+        connectUrl: null,
+        error: "Relay isn't reachable — check the base URL in the Relay section below and make sure Relay is running on this machine (default http://127.0.0.1:3006).",
+      });
+    }
     const connectUrl = await def.connectUrl();
     return json({ connectUrl, pairing: !!def.pairing });
   }
@@ -217,7 +224,7 @@ async function handle(req: Request): Promise<Response> {
     const body = await readJson(req);
     const allowed = new Set([
       "quiet_enabled", "quiet_start", "quiet_end", "digest_minutes", "urgent_breaks_quiet",
-      "dnd", "gcal_ical_url", "ascent_base_url", "vip_list",
+      "dnd", "gcal_ical_url", "ascent_base_url", "relay_base_url", "vip_list",
     ]);
     for (const [k, v] of Object.entries(body)) {
       if (!allowed.has(k)) continue;
@@ -230,6 +237,10 @@ async function handle(req: Request): Promise<Response> {
         if (val && !/^https:\/\//i.test(val)) continue; // secret feed URLs only
       }
       if (k === "ascent_base_url") {
+        val = val.trim().slice(0, 500).replace(/\/+$/, "");
+        if (val && !/^https?:\/\//i.test(val)) continue; // localhost http is fine
+      }
+      if (k === "relay_base_url") {
         val = val.trim().slice(0, 500).replace(/\/+$/, "");
         if (val && !/^https?:\/\//i.test(val)) continue; // localhost http is fine
       }
